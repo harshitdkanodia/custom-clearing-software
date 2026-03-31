@@ -1,0 +1,238 @@
+// CHA Shipment Management System — Prisma Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS (SQLite doesn't natively support enums, use String with validation) ───
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("VIEWER") // ADMIN | OPERATION_STAFF | VIEWER
+  isActive  Boolean  @default(true)
+  otp       String?
+  otpExpiry DateTime?
+  resetToken String?
+  createdAt DateTime @default(now())
+
+  activityLogs ActivityLog[]
+}
+
+model Customer {
+  id           Int      @id @default(autoincrement())
+  customerName String
+  iecCode      String   @unique // 10 alphanumeric chars
+  gstNumber    String   @unique // 20 alphanumeric chars
+  address      String?
+  email        String?
+  dpd          Boolean  @default(false)
+  status       String   @default("ACTIVE") // ACTIVE | DISABLED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  shipments    Shipment[]
+  kycDocuments ChaKycDocument[]
+}
+
+model Shipment {
+  id                    Int      @id @default(autoincrement())
+  onsJobNumber          String   @unique
+  customerId            Int
+  shipmentType          String   // IMPORT | EXPORT
+  noOfCtn               Int?
+  description           String?
+  grossWeight           Float?
+  cfsName               String?
+  mblNo                 String?
+  hblNo                 String?
+  vesselNameVoyage      String?
+  linerName             String?
+  forwarderName         String?
+  portOfLoading         String?
+  eta                   DateTime?
+  freeDaysShippingLine  Int?
+  freeDaysCfs           Int?
+  igmStatus             String   @default("IGM_NOT_FILED") // IGM_NOT_FILED | AWAITING_VESSEL | VESSEL_ARRIVED
+  igmNumber             String?
+  igmDate               DateTime?
+  igmItemNo             String?
+  inwardDate            DateTime?
+  status                String   @default("ACTIVE") // ACTIVE | READY_FOR_BILLING | READY_FOR_COURIER | CLOSED
+  doChecklistComplete   Boolean  @default(false)
+  filingComplete        Boolean  @default(false)
+  billingComplete       Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  customer       Customer        @relation(fields: [customerId], references: [id])
+  containers     Container[]
+  doDocuments    DoDocument[]
+  filingDocuments FilingDocument[]
+  boeStatus      BoeStatus?
+  billing        Billing?
+  courier        Courier?
+  transports     Transport[]
+  alerts         Alert[]
+  activityLogs   ActivityLog[]
+}
+
+model Container {
+  id              Int      @id @default(autoincrement())
+  shipmentId      Int
+  containerNumber String
+  containerType   String   // LCL | FCL
+  containerSize   String   // TWENTY | FORTY
+  status          String   @default("AWAITING_VESSEL") // AWAITING_VESSEL | PORT_IN | PORT_OUT | CFS_IN | CFS_OUT_DELIVERED
+  portInDate      DateTime?
+  portInCfsName   String?
+  portOutDate     DateTime?
+  cfsInDate       DateTime?
+  cfsOutDate      DateTime?
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model DoDocument {
+  id           Int      @id @default(autoincrement())
+  shipmentId   Int
+  documentType String   // MBL | HBL | SECURITY_DEPOSIT | INSURANCE | LOADED_DESTUFF | EMAIL_SHIPPING_LINE | IMPORTER_KYC | BOND_FORMAT | DO_CHARGES | DELIVERY_ORDER | EMPTY_LETTER
+  isMandatory  Boolean  @default(false)
+  fileUrl      String?
+  uploadedAt   DateTime?
+  status       String   @default("PENDING") // PENDING | RECEIVED | CHECKLIST_PENDING | CHECKLIST_READY | SENT_FOR_APPROVAL | APPROVED | SENT_FOR_SUBMISSION
+  statusDate   DateTime?
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model FilingDocument {
+  id           Int      @id @default(autoincrement())
+  shipmentId   Int
+  documentType String   // BL | INVOICE | PL | COO | BIS | FREIGHT_CERT | INSURANCE_CERT | SIMS | PIMS | NFIMS | CHIMS | REEIMS | LICENCE | EPRA_PLASTIC | EPRA_EWASTE | EPRA_BATTERY | ETA_WPC | PHYTOSANITARY | FSSAI | OTHER
+  isMandatory  Boolean  @default(false)
+  fileUrl      String?
+  uploadedAt   DateTime?
+  status       String   @default("PENDING") // PENDING | UPLOADED
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model ChaKycDocument {
+  id           Int      @id @default(autoincrement())
+  customerId   Int
+  documentType String   // KYC_FORM | AUTHORITY_LETTER | IEC | GST | ELECTRICITY_BILL | PAN | TAN | AD_CODE | CANCELLED_CHEQUE | FIRM_REGISTRATION | CENTRAL_EXCISE | AADHAR_PAN_PARTNER
+  isMandatory  Boolean  @default(false)
+  fileUrl      String?
+  uploadedAt   DateTime?
+  status       String   @default("PENDING") // PENDING | UPLOADED
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model BoeStatus {
+  id                       Int      @id @default(autoincrement())
+  shipmentId               Int      @unique
+  status                   String   @default("BOE_NOT_FILED") // BOE_NOT_FILED | BOE_FILED | UNDER_ASSESSMENT | ASSESSMENT_DONE | GOODS_REGISTRATION | EXAMINATION | DUTY_PAYMENT | OOC | STAMP_DUTY | DELIVERY
+  boeNumber                String?  // 7 digits
+  boeFiledDate             DateTime?
+  queryStatus              String?  // QUERY_REPLY_PENDING | QUERY_REPLIED
+  queryRepliedDate         DateTime?
+  assessmentDoneDate       DateTime?
+  goodsRegistrationStatus  String?  // PENDING | DONE
+  goodsRegistrationDate    DateTime?
+  examinationType          String?  // RMS | PENDING | DONE
+  examinationDate          DateTime?
+  examinationPercentage    Float?
+  dutyPaymentStatus        String?  // PENDING | DONE
+  dutyPaymentDate          DateTime?
+  oocStatus                String?  // PENDING | DONE
+  oocDate                  DateTime?
+  stampDutyStatus          String?  // PENDING | DONE
+  stampDutyDate            DateTime?
+  stampDutyAmount          Float?
+  deliveryStatus           String?  // PENDING | DELIVERED
+  deliveryDate             DateTime?
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model Billing {
+  id                  Int      @id @default(autoincrement())
+  shipmentId          Int      @unique
+  finalBillUrl        String?
+  stampDutyUrl        String?
+  cfsChargesUrl       String?
+  transportChargesUrl String?
+  firstTimeImportUrl  String?
+  deliveryChargesUrl  String?
+  oocDocUrl           String?
+  boeDocUrl           String?
+  insuranceUrl        String?
+  unionChargesUrl     String?
+  billAmount          Float?
+  billDate            DateTime?
+  billEmailSentDate   DateTime?
+  isComplete          Boolean  @default(false)
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model Courier {
+  id           Int      @id @default(autoincrement())
+  shipmentId   Int      @unique
+  courierName  String?
+  dispatchDate DateTime?
+  receiptUrl   String?
+  status       String   @default("PENDING") // PENDING | DISPATCHED
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model Transport {
+  id                    Int      @id @default(autoincrement())
+  shipmentId            Int
+  arrangedBy            String?
+  transporterName       String?
+  gstNo                 String?
+  vehicleNumber         String?
+  driverMobile          String?
+  emptyUnloadingCharges Float?
+  unionCharges          Float?
+  doValidTill           DateTime?
+  transportFrom         String?
+  transportTo           String?
+  grossWeight           Float?
+  deliveryDate          DateTime?
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model Alert {
+  id         Int      @id @default(autoincrement())
+  shipmentId Int
+  alertType  String   // ETA_TOMORROW | FREE_DAY_EXPIRY | DPD_PORT_IN | IGM_UPDATE | BOE_UPDATE | DO_UPDATE | CONTAINER_UPDATE
+  message    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+}
+
+model ActivityLog {
+  id         Int      @id @default(autoincrement())
+  shipmentId Int?
+  userId     Int?
+  action     String
+  details    String?
+  createdAt  DateTime @default(now())
+
+  shipment Shipment? @relation(fields: [shipmentId], references: [id], onDelete: SetNull)
+  user     User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
