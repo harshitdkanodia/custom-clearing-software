@@ -61,6 +61,32 @@ frontend/src/
 
 **Auto-status progression:** After container/BOE/document updates, call `checkAndProgressShipment(shipmentId)` from [shipmentProgressionService.js](backend/src/services/shipmentProgressionService.js) to auto-advance statuses.
 
+## Schema Sync — CRITICAL
+
+The project has **two Prisma schema files** that must always be kept in sync:
+
+| File | Purpose |
+|---|---|
+| `backend/prisma/schema.prisma` | SQLite — used in local development |
+| `backend/prisma/schema.postgresql.prisma` | PostgreSQL — used in production (Docker/cloud) |
+
+**Any time you modify `schema.prisma`, you MUST apply the exact same model/field/relation changes to `schema.postgresql.prisma`.** The only permitted differences between the two files are:
+
+- `provider = "sqlite"` vs `provider = "postgresql"`
+- SQLite uses `String` for fields that PostgreSQL may type as `Text` or use native enums — keep them as plain `String` in both unless explicitly told otherwise
+- `@db.*` attributes (e.g. `@db.Text`) are PostgreSQL-only; do not add them to the SQLite schema
+
+After editing either schema, run migrations against the appropriate schema:
+```bash
+# SQLite (dev)
+npx prisma migrate dev
+
+# PostgreSQL (production) — pass the schema flag
+npx prisma migrate dev --schema=prisma/schema.postgresql.prisma
+```
+
+Failing to sync both schemas will break production deployments.
+
 ## Database Models (brief)
 
 See [schema.prisma](backend/prisma/schema.prisma) for full schema.
