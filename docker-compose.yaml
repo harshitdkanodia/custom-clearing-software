@@ -1,5 +1,5 @@
 services:
-  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  # PostgreSQL
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -9,6 +9,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-cha_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - cha_network
     healthcheck:
       test:
         [
@@ -19,7 +21,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Backend (Node.js / Express / Prisma) ────────────────────────────────────
+  # Backend (Node.js / Express / Prisma)
   backend:
     build:
       context: ./backend
@@ -38,11 +40,13 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
     volumes:
       - uploads_data:/app/uploads
+    networks:
+      - cha_network
     depends_on:
       postgres:
         condition: service_healthy
 
-  # ── Frontend (React / nginx) ─────────────────────────────────────────────────
+  # Frontend (React / nginx)
   frontend:
     build:
       context: ./frontend
@@ -51,10 +55,16 @@ services:
         VITE_API_URL: /api
     restart: unless-stopped
     ports:
-      - "80:80"
+      - 80
+    networks:
+      - cha_network
     depends_on:
       - backend
 
 volumes:
   postgres_data:
   uploads_data:
+
+networks:
+  cha_network:
+    driver: bridge
