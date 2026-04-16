@@ -383,11 +383,11 @@ export default function ShipmentDetail() {
                                     {[
                                         { label: 'Query', stage: 'QUERY', status: boe.queryStatus, date: boe.queryRepliedDate },
                                         { label: 'Assessment', stage: 'ASSESSMENT', status: boe.assessmentDoneDate ? 'DONE' : 'PENDING', date: boe.assessmentDoneDate },
-                                        { label: 'Registration', stage: 'REGISTRATION', status: boe.goodsRegistrationStatus, date: boe.goodsRegistrationDate },
-                                        { label: 'Examination', stage: 'EXAMINATION', status: boe.examinationType || 'PENDING', date: boe.examinationDate, meta: boe.examinationPercentage ? `${boe.examinationPercentage}%` : null },
-                                        { label: 'Duty', stage: 'DUTY', status: boe.dutyPaymentStatus, date: boe.dutyPaymentDate },
-                                        { label: 'OOC', stage: 'OOC', status: boe.oocStatus, date: boe.oocDate },
-                                        { label: 'Stamp Duty', stage: 'STAMP_DUTY', status: boe.stampDutyStatus, date: boe.stampDutyDate, meta: boe.stampDutyAmount ? `₹${boe.stampDutyAmount}` : null },
+                                        { label: 'Registration', stage: 'REGISTRATION', status: boe.goodsRegistrationDate || boe.goodsRegistrationStatus === 'DONE' ? 'DONE' : 'PENDING', date: boe.goodsRegistrationDate },
+                                        { label: 'Examination', stage: 'EXAMINATION', status: boe.examinationDate || boe.examinationType === 'DONE' ? 'DONE' : (boe.examinationType || 'PENDING'), date: boe.examinationDate, meta: boe.examinationPercentage ? `${boe.examinationPercentage}%` : null },
+                                        { label: 'Duty', stage: 'DUTY', status: boe.dutyPaymentDate || boe.dutyPaymentStatus === 'DONE' ? 'DONE' : 'PENDING', date: boe.dutyPaymentDate },
+                                        { label: 'OOC', stage: 'OOC', status: boe.oocDate || boe.oocStatus === 'DONE' ? 'DONE' : 'PENDING', date: boe.oocDate },
+                                        { label: 'Stamp Duty', stage: 'STAMP_DUTY', status: boe.stampDutyDate || boe.stampDutyStatus === 'DONE' ? 'DONE' : 'PENDING', date: boe.stampDutyDate, meta: boe.stampDutyAmount ? `₹${boe.stampDutyAmount}` : null },
                                     ].map((s, idx) => (
                                         <div key={`${s.label}-${idx}`} className="bg-gray-50 p-3 rounded-lg border flex flex-col justify-between">
                                             <div className="flex items-center justify-between mb-1.5">
@@ -397,7 +397,7 @@ export default function ShipmentDetail() {
                                             <div className="flex items-center justify-between">
                                                 <div className="flex flex-col">
                                                     <Badge variant={s.status === 'DONE' || (s.date && s.stage !== 'QUERY') ? 'success' : 'outline'} className="text-[9px] w-fit">
-                                                        {s.status?.replace(/_/g, ' ') || 'PENDING'}
+                                                        {s.status?.replace(/_/g, ' ') || (s.stage === 'QUERY' ? 'NO QUERY' : 'PENDING')}
                                                     </Badge>
                                                     {s.meta && <span className="text-[9px] font-bold text-blue-600 mt-1">{s.meta}</span>}
                                                 </div>

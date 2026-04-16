@@ -18,24 +18,47 @@ async function getBoeStatus(req, res) {
     }
 }
 
+/**
+ * Helper to determine the current status based on completed stages
+ */
+function calculateBoeStatus(boe) {
+    if (boe.deliveryStatus === 'DELIVERED' || boe.deliveryDate) return 'DELIVERY';
+    if (boe.stampDutyStatus === 'DONE' || boe.stampDutyDate) return 'STAMP_DUTY';
+    if (boe.oocStatus === 'DONE' || boe.oocDate) return 'OOC';
+    if (boe.dutyPaymentStatus === 'DONE' || boe.dutyPaymentDate) return 'DUTY_PAYMENT';
+    if (boe.examinationType === 'DONE' || boe.examinationDate) return 'EXAMINATION';
+    if (boe.goodsRegistrationStatus === 'DONE' || boe.goodsRegistrationDate) return 'GOODS_REGISTRATION';
+    if (boe.assessmentDoneDate) return 'ASSESSMENT_DONE';
+    if (boe.queryStatus === 'QUERY_RECEIVED' || boe.queryStatus === 'QUERY_REPLIED') return 'UNDER_ASSESSMENT';
+    if (boe.boeNumber || boe.boeFiledDate) return 'BOE_FILED';
+    return 'BOE_NOT_FILED';
+}
+
 // PATCH /api/shipments/:id/boe
 async function updateBoeStatus(req, res) {
     try {
         const shipmentId = parseInt(req.params.id);
-        const data = {};
         const body = req.body;
         const errors = {};
 
+        // 1. Fetch current BOE to merge data
+        let existingBoe = await prisma.boeStatus.findUnique({ where: { shipmentId } });
+        if (!existingBoe) {
+            existingBoe = await prisma.boeStatus.create({ data: { shipmentId } });
+        }
+
+        const data = {};
+
         // Map fields from request
-        if (body.status) data.status = body.status;
         if (body.boeNumber) {
-            if (!/^\d{7}$/.test(body.boeNumber)) {
-                errors.boeNumber = 'BOE Number must be exactly 7 digits';
+            if (!/^\d{7,10}$/.test(body.boeNumber)) {
+                errors.boeNumber = 'BOE Number must be 7-10 digits';
             }
             data.boeNumber = body.boeNumber;
         }
         if (body.boeFiledDate) data.boeFiledDate = new Date(body.boeFiledDate);
         if (body.queryStatus) data.queryStatus = body.queryStatus;
+        else if (!existingBoe.queryStatus) data.queryStatus = 'NO_QUERY'; // Default to NO_QUERY
         if (body.queryRepliedDate) data.queryRepliedDate = new Date(body.queryRepliedDate);
         if (body.assessmentDoneDate) data.assessmentDoneDate = new Date(body.assessmentDoneDate);
         if (body.goodsRegistrationStatus) data.goodsRegistrationStatus = body.goodsRegistrationStatus;
@@ -57,19 +80,25 @@ async function updateBoeStatus(req, res) {
             return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Validation failed', fields: errors } });
         }
 
+        // 2. Calculate new status based on merged data
+        const mergedBoe = { ...existingBoe, ...data };
+        data.status = calculateBoeStatus(mergedBoe);
+
         const boe = await prisma.boeStatus.update({
             where: { shipmentId },
             data,
         });
 
         // Generate human readable details
-        const changedFields = Object.keys(data);
+        const changedFields = Object.keys(data).filter(f => f !== 'status');
         let detail = `Updated stages: ${changedFields.map(f => f.replace(/([A-Z])/g, ' $1').toLowerCase()).join(', ')}`;
 
         // Specific nice messages for major status changes
-        if (data.status) detail = `BOE Status changed to ${data.status.replace(/_/g, ' ')}`;
-        else if (data.boeNumber) detail = `BOE Number updated to ${data.boeNumber}`;
-        else if (data.deliveryStatus) detail = `Delivery status: ${data.deliveryStatus.replace(/_/g, ' ')}`;
+        if (boe.status !== existingBoe.status) {
+            detail = `BOE Status progressed to ${boe.status.replace(/_/g, ' ')}`;
+        } else if (data.boeNumber) {
+            detail = `BOE Number updated to ${data.boeNumber}`;
+        }
 
         await logActivity({
             shipmentId,
@@ -78,7 +107,7 @@ async function updateBoeStatus(req, res) {
             details: detail
         });
 
-        // Check for progression on any update (specifically delivery status changes)
+        // Check for progression on any update
         await checkAndProgressShipment(shipmentId);
 
         res.json({ success: true, data: boe });

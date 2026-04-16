@@ -4,9 +4,10 @@ const { verifyToken, requireRole } = require('../middleware/auth');
 const {
     createShipment, getShipments, getShipment,
     updateShipment, updateIgmStatus, updateContainerStatus, getShipmentActivity,
-    getBoeStatus, updateBoeStatus, getTransports, createOrUpdateTransport,
+    getTransports, createOrUpdateTransport,
     deleteShipment
 } = require('../controllers/shipmentController');
+const { getBoeStatus, updateBoeStatus } = require('../controllers/boeController');
 
 router.use(verifyToken);
 

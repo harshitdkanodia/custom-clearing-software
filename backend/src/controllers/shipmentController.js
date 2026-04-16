@@ -12,28 +12,53 @@ function getFinancialYear() {
     const endYear = startYear + 1;
     return `${startYear.toString().slice(-2)}-${endYear.toString().slice(-2)}`;
 }
+async function generateNextJobNumber() {
+    const today = new Date();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const yyyy = today.getFullYear();
+    const prefix = `ONS/${mm}/${yyyy}/`;
 
+    // Find the latest shipment with this prefix
+    const lastShipment = await prisma.shipment.findFirst({
+        where: { onsJobNumber: { startsWith: prefix } },
+        orderBy: { onsJobNumber: 'desc' },
+    });
+
+    let nextSeq = 1;
+    if (lastShipment) {
+        const parts = lastShipment.onsJobNumber.split('/');
+        const lastSeq = parseInt(parts[parts.length - 1]);
+        if (!isNaN(lastSeq)) {
+            nextSeq = lastSeq + 1;
+        }
+    }
+
+    return `${prefix}${String(nextSeq).padStart(3, '0')}`;
+}
 
 // POST /api/shipments
 async function createShipment(req, res) {
     try {
-        const {
+        let {
             onsJobNumber, customerId, shipmentType, noOfCtn, description, grossWeight, cfsName,
             mblNo, hblNo, vesselNameVoyage, linerName, forwarderName, portOfLoading,
             eta, freeDaysShippingLine, freeDaysCfs, containers
         } = req.body;
 
         const errors = {};
-        if (!onsJobNumber) errors.onsJobNumber = 'Job Number is required';
+
+        // Auto-generate Job Number if not provided
+        if (!onsJobNumber || !onsJobNumber.trim()) {
+            onsJobNumber = await generateNextJobNumber();
+        } else {
+            // Check for duplicate Job Number if manually provided
+            const existingJob = await prisma.shipment.findUnique({ where: { onsJobNumber: onsJobNumber.toString() } });
+            if (existingJob) errors.onsJobNumber = 'Job Number already exists';
+        }
+
         if (!customerId) errors.customerId = 'Customer is required';
         if (!shipmentType) errors.shipmentType = 'Shipment type is required';
         if (!containers || containers.length === 0) errors.containers = 'At least one container is required';
-
-        // Check for duplicate Job Number
-        if (onsJobNumber) {
-            const existingJob = await prisma.shipment.findUnique({ where: { onsJobNumber } });
-            if (existingJob) errors.onsJobNumber = 'Job Number already exists';
-        }
 
         // Validate containers
         if (containers?.length > 0) {
@@ -301,65 +326,6 @@ async function updateContainerStatus(req, res) {
     }
 }
 
-// GET /api/shipments/:id/boe
-async function getBoeStatus(req, res) {
-    try {
-        const boe = await prisma.boeStatus.findUnique({
-            where: { shipmentId: parseInt(req.params.id) },
-        });
-        res.json({ success: true, data: boe });
-    } catch (err) {
-        res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to fetch BOE status' } });
-    }
-}
-
-// PATCH /api/shipments/:id/boe
-async function updateBoeStatus(req, res) {
-    try {
-        const id = parseInt(req.params.id);
-        const data = req.body;
-
-        // Convert date strings to Date objects
-        const dateFields = [
-            'boeFiledDate', 'queryRepliedDate', 'goodsRegistrationDate',
-            'examinationDate', 'dutyPaymentDate', 'stampDutyDate', 'oocDate', 'deliveryDate'
-        ];
-        dateFields.forEach(f => {
-            if (data[f]) data[f] = new Date(data[f]);
-        });
-
-        const boe = await prisma.boeStatus.upsert({
-            where: { shipmentId: id },
-            update: data,
-            create: { ...data, shipmentId: id },
-        });
-
-        // Generate human readable details
-        const changedFields = Object.keys(req.body).filter(k => !['id', 'shipmentId'].includes(k));
-        let detail = `Updated stages: ${changedFields.map(f => f.replace(/([A-Z])/g, ' $1').toLowerCase()).join(', ')}`;
-
-        // Specific nice messages for major status changes
-        if (data.status) detail = `BOE Status changed to ${data.status.replace(/_/g, ' ')}`;
-        else if (data.boeNumber) detail = `BOE Number updated to ${data.boeNumber}`;
-        else if (data.deliveryStatus) detail = `Delivery status: ${data.deliveryStatus.replace(/_/g, ' ')}`;
-
-        await logActivity({
-            shipmentId: id,
-            userId: req.user.id,
-            action: 'UPDATE_BOE',
-            details: detail
-        });
-
-        // Trigger side effects (e.g. progressing shipment status)
-        await checkAndProgressShipment(id);
-
-        res.json({ success: true, data: boe });
-    } catch (err) {
-        console.error('Update BOE status error:', err);
-        res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to update BOE status' } });
-    }
-}
-
 // GET /api/shipments/:id/transport
 async function getTransports(req, res) {
     try {
@@ -457,6 +423,6 @@ async function deleteShipment(req, res) {
 module.exports = {
     createShipment, getShipments, getShipment, updateShipment,
     updateIgmStatus, updateContainerStatus, getShipmentActivity,
-    getBoeStatus, updateBoeStatus, getTransports, createOrUpdateTransport,
+    getTransports, createOrUpdateTransport,
     deleteShipment
 };
