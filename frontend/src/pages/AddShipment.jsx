@@ -57,8 +57,7 @@ export default function AddShipment() {
     async function handleSubmit(e) {
         e.preventDefault();
         const errs = {};
-        if (!form.onsJobNumber?.trim()) errs.onsJobNumber = 'Job Number is required';
-        else if (!/^\d+$/.test(form.onsJobNumber)) errs.onsJobNumber = 'Job Number must be numeric only';
+        if (!selectedCustomer) errs.customerId = 'Select a customer';
         if (!selectedCustomer) errs.customerId = 'Select a customer';
         if (!form.shipmentType) errs.shipmentType = 'Select shipment type';
         if (containers.some(c => !c.containerNumber.trim())) errs.containers = 'All containers need a number';
@@ -128,11 +127,11 @@ export default function AddShipment() {
                     <CardContent className="space-y-2 pt-3 pb-3 px-3 text-sm">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                             <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Job Number *</Label>
+                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Job Number (Leave blank for auto)</Label>
                                 <Input
                                     value={form.onsJobNumber}
-                                    onChange={e => handleChange('onsJobNumber', e.target.value.replace(/\D/g, ''))}
-                                    placeholder="Enter Job No."
+                                    onChange={e => handleChange('onsJobNumber', e.target.value)}
+                                    placeholder="Auto-generated if blank"
                                     className={`h-8 text-sm ${errors.onsJobNumber ? 'border-red-500' : ''}`}
                                 />
                                 {errors.onsJobNumber && <p className="text-red-500 text-[10px]">{errors.onsJobNumber}</p>}
