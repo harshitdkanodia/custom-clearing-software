@@ -25,16 +25,47 @@ async function getBillingList(req, res) {
 async function getBillingDetail(req, res) {
     try {
         const shipmentId = parseInt(req.params.shipmentId);
-        let billing = await prisma.billing.findUnique({ where: { shipmentId } });
+        let billing = await prisma.billing.findUnique({ 
+            where: { shipmentId },
+            include: { documents: true }
+        });
+        
         if (!billing) {
-            billing = await prisma.billing.create({ data: { shipmentId } });
+            billing = await prisma.billing.create({ 
+                data: { shipmentId },
+                include: { documents: true }
+            });
         }
+
         const shipment = await prisma.shipment.findUnique({
             where: { id: shipmentId },
-            include: { customer: true, containers: { select: { containerNumber: true } } },
+            include: { 
+                customer: true, 
+                containers: { select: { containerNumber: true } },
+                boeStatus: true
+            },
         });
+
+        // Auto-fetch fields from boeStatus if null in billing
+        if (shipment.boeStatus) {
+            const updates = {};
+            if (!billing.boeDocUrl && shipment.boeStatus.boeFileUrl) updates.boeDocUrl = shipment.boeStatus.boeFileUrl;
+            if (!billing.oocDocUrl && shipment.boeStatus.oocFileUrl) updates.oocDocUrl = shipment.boeStatus.oocFileUrl;
+            if (!billing.stampDutyUrl && shipment.boeStatus.stampDutyFileUrl) updates.stampDutyUrl = shipment.boeStatus.stampDutyFileUrl;
+            if (!billing.cfsChargesUrl && shipment.boeStatus.cfsInvoiceUrl) updates.cfsChargesUrl = shipment.boeStatus.cfsInvoiceUrl;
+
+            if (Object.keys(updates).length > 0) {
+                billing = await prisma.billing.update({
+                    where: { id: billing.id },
+                    data: updates,
+                    include: { documents: true }
+                });
+            }
+        }
+
         res.json({ success: true, data: { billing, shipment } });
     } catch (err) {
+        console.error('Get billing detail error:', err);
         res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to fetch billing' } });
     }
 }
@@ -57,10 +88,11 @@ async function uploadBillingDoc(req, res) {
         const field = fieldMap[docType];
         if (!field) return res.status(400).json({ success: false, error: { message: 'Invalid document type' } });
 
-        let billing = await prisma.billing.findUnique({ where: { shipmentId } });
-        if (!billing) billing = await prisma.billing.create({ data: { shipmentId } });
-
-        await prisma.billing.update({ where: { shipmentId }, data: { [field]: fileUrl } });
+        await prisma.billing.upsert({
+            where: { shipmentId },
+            update: { [field]: fileUrl },
+            create: { shipmentId, [field]: fileUrl }
+        });
 
         await logActivity({
             shipmentId,
@@ -71,6 +103,7 @@ async function uploadBillingDoc(req, res) {
 
         res.json({ success: true, message: 'Document uploaded' });
     } catch (err) {
+        console.error('Upload billing doc error:', err);
         res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Upload failed' } });
     }
 }
@@ -79,9 +112,10 @@ async function uploadBillingDoc(req, res) {
 async function markBillingComplete(req, res) {
     try {
         const shipmentId = parseInt(req.params.shipmentId);
-        await prisma.billing.update({
+        await prisma.billing.upsert({
             where: { shipmentId },
-            data: { isComplete: true, billDate: new Date() },
+            update: { isComplete: true, billDate: new Date() },
+            create: { shipmentId, isComplete: true, billDate: new Date() }
         });
         await prisma.shipment.update({ where: { id: shipmentId }, data: { billingComplete: true } });
 
@@ -95,6 +129,7 @@ async function markBillingComplete(req, res) {
         await checkAndProgressShipment(shipmentId);
         res.json({ success: true, message: 'Billing marked complete' });
     } catch (err) {
+        console.error('Complete billing error:', err);
         res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to complete billing' } });
     }
 }
@@ -104,17 +139,24 @@ async function saveBillAmount(req, res) {
     try {
         const shipmentId = parseInt(req.params.shipmentId);
         const { billAmount } = req.body;
-        await prisma.billing.update({ where: { shipmentId }, data: { billAmount: parseFloat(billAmount) } });
+        const amount = parseFloat(billAmount) || 0;
+        
+        await prisma.billing.upsert({ 
+            where: { shipmentId }, 
+            update: { billAmount: amount },
+            create: { shipmentId, billAmount: amount }
+        });
 
         await logActivity({
             shipmentId,
             userId: req.user.id,
             action: 'SAVE_BILL_AMOUNT',
-            details: `Bill Amount: ${billAmount}`
+            details: `Bill Amount: ${amount}`
         });
 
         res.json({ success: true, message: 'Bill amount saved' });
     } catch (err) {
+        console.error('Save bill amount error:', err);
         res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to save amount' } });
     }
 }
@@ -153,4 +195,79 @@ async function sendBillEmail(req, res) {
     }
 }
 
-module.exports = { getBillingList, getBillingDetail, uploadBillingDoc, markBillingComplete, saveBillAmount, sendBillEmail };
+async function deleteBillingDoc(req, res) {
+    try {
+        const { shipmentId, field } = req.params;
+        const sid = parseInt(shipmentId);
+        
+        let billing = await prisma.billing.findUnique({ where: { shipmentId: sid } });
+        if (billing) {
+            await prisma.billing.update({
+                where: { shipmentId: sid },
+                data: { [field]: null }
+            });
+        }
+        res.json({ success: true, message: 'Document removed' });
+    } catch (err) {
+        console.error('Delete billing doc error:', err);
+        res.status(500).json({ success: false, error: { message: 'Delete failed' } });
+    }
+}
+
+async function deleteBillingExtraDoc(req, res) {
+    try {
+        const { docId } = req.params;
+        await prisma.billingDocument.delete({
+            where: { id: parseInt(docId) }
+        });
+        res.json({ success: true, message: 'Document removed' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: { message: 'Delete failed' } });
+    }
+}
+
+async function addOtherBillingDoc(req, res) {
+    try {
+        const shipmentId = parseInt(req.params.shipmentId);
+        const { customType } = req.body;
+        
+        let billing = await prisma.billing.findUnique({ where: { shipmentId } });
+        if (!billing) billing = await prisma.billing.create({ data: { shipmentId } });
+
+        const doc = await prisma.billingDocument.create({
+            data: {
+                billingId: billing.id,
+                documentType: 'OTHER',
+                customType,
+                fileUrl: '' // Will be updated on upload
+            }
+        });
+
+        res.json({ success: true, data: doc });
+    } catch (err) {
+        res.status(500).json({ success: false, error: { message: 'Failed to add document slot' } });
+    }
+}
+
+async function uploadBillingExtraDoc(req, res) {
+    try {
+        const { docId } = req.params;
+        if (!req.file) return res.status(400).json({ success: false, error: { message: 'File is required' } });
+
+        const fileUrl = `/uploads/${req.file.filename}`;
+        await prisma.billingDocument.update({
+            where: { id: parseInt(docId) },
+            data: { fileUrl }
+        });
+
+        res.json({ success: true, message: 'File uploaded' });
+    } catch (err) {
+        res.status(500).json({ success: false, error: { message: 'Upload failed' } });
+    }
+}
+
+module.exports = { 
+    getBillingList, getBillingDetail, uploadBillingDoc, markBillingComplete, 
+    saveBillAmount, sendBillEmail, deleteBillingDoc, deleteBillingExtraDoc, 
+    addOtherBillingDoc, uploadBillingExtraDoc 
+};

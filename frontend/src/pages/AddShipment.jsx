@@ -6,9 +6,36 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import CustomerSearchDropdown from '@/components/CustomerSearchDropdown';
-import { Plus, Trash2, Loader2, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, Loader2, ArrowLeft, Info, FileText } from 'lucide-react';
 import { toast } from 'sonner';
+
+const CONTAINER_SIZES = [
+    { value: 'TWENTY_HQ', label: '20" HQ' },
+    { value: 'FORTY_HQ', label: '40" HQ' },
+    { value: 'TWENTY_OT', label: '20" OT' },
+    { value: 'FORTY_OT', label: '40" OT' },
+    { value: 'TWENTY_FT', label: '20 Flat Track' },
+    { value: 'FORTY_FT', label: '40 Flat Track' },
+    { value: 'TWENTY', label: '20\' Standard' },
+    { value: 'FORTY', label: '40\' Standard' },
+];
+
+const MANDATORY_DOCS = {
+    HOME_CONSUMPTION: [
+        'Commercial Invoice', 'Packing List', 'House Bill of Lading', 'Master Bill of Lading',
+        'COO (Certificate of Origin)', 'Freight Certificate', 'Insurance', 'BIS Certificate (if applicable)',
+        'LMPC', 'EPRA Certificate (Plastic)', 'EPRA certificate (E waste)', 'Catalogue of Goods', 'Other Document'
+    ],
+    IN_BOND: [
+        'Commercial Invoice', 'Packing List', 'Master Bill of Lading', 'HBL', 'COO',
+        'Freight Certificate', 'Insurance', 'BIS Certificate', 'Authority Letter',
+        'Dimension Certificate', 'Space Certificate', 'Bond & License',
+        'Transit Insurance Policy', 'OT Container Photographs', 
+        'CHA Authorization Documents – Authority letter and Custom Pass', 'Other Document'
+    ]
+};
 
 export default function AddShipment() {
     const navigate = useNavigate();
@@ -18,6 +45,7 @@ export default function AddShipment() {
     const [form, setForm] = useState({
         onsJobNumber: '',
         shipmentType: 'IMPORT',
+        shipmentSubType: 'HOME_CONSUMPTION',
         noOfCtn: '',
         description: '',
         grossWeight: '',
@@ -58,7 +86,6 @@ export default function AddShipment() {
         e.preventDefault();
         const errs = {};
         if (!selectedCustomer) errs.customerId = 'Select a customer';
-        if (!selectedCustomer) errs.customerId = 'Select a customer';
         if (!form.shipmentType) errs.shipmentType = 'Select shipment type';
         if (containers.some(c => !c.containerNumber.trim())) errs.containers = 'All containers need a number';
 
@@ -92,194 +119,150 @@ export default function AddShipment() {
                     <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <div>
-                    <h1 className="text-xl font-bold text-gray-900">New Shipment</h1>
-                    <p className="text-gray-500 text-[11px] mt-0.5">Create a new shipment with container details</p>
+                    <h1 className="text-xl font-bold text-gray-900">Step 1: New Shipment</h1>
+                    <p className="text-gray-500 text-[11px] mt-0.5">Initialize shipment job with type and container details</p>
                 </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-3">
-                {/* Customer Selection */}
-                <Card>
-                    <CardHeader className="py-2 px-3 border-b">
-                        <CardTitle className="text-sm font-semibold">Customer Selection</CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-3 pb-3 px-3">
-                        <CustomerSearchDropdown
-                            onSelect={(c) => { setSelectedCustomer(c); setErrors(prev => ({ ...prev, customerId: undefined })); }}
-                            onAddNew={() => navigate('/customers')}
-                        />
-                        {errors.customerId && <p className="text-red-500 text-[10px] mt-1">{errors.customerId}</p>}
-                        {selectedCustomer && (
-                            <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded-md text-[12px]">
-                                <p className="font-semibold text-blue-900">{selectedCustomer.customerName}</p>
-                                <p className="text-blue-700/70">IEC: {selectedCustomer.iecCode} | GST: {selectedCustomer.gstNumber}</p>
-                                {selectedCustomer.address && <p className="text-blue-700/70 truncate">{selectedCustomer.address}</p>}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Shipment Details */}
-                <Card>
-                    <CardHeader className="py-2 px-3 border-b">
-                        <CardTitle className="text-sm font-semibold">Shipment Details</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 pt-3 pb-3 px-3 text-sm">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Job Number (Leave blank for auto)</Label>
-                                <Input
-                                    value={form.onsJobNumber}
-                                    onChange={e => handleChange('onsJobNumber', e.target.value)}
-                                    placeholder="Auto-generated if blank"
-                                    className={`h-8 text-sm ${errors.onsJobNumber ? 'border-red-500' : ''}`}
+            <div className="w-full">
+                <form onSubmit={handleSubmit} className="space-y-3">
+                        {/* Customer Selection */}
+                        <Card>
+                            <CardHeader className="py-2 px-3 border-b">
+                                <CardTitle className="text-sm font-semibold">Customer Selection</CardTitle>
+                            </CardHeader>
+                            <CardContent className="pt-3 pb-3 px-3">
+                                <CustomerSearchDropdown
+                                    onSelect={(c) => { setSelectedCustomer(c); setErrors(prev => ({ ...prev, customerId: undefined })); }}
+                                    onAddNew={() => navigate('/customers')}
                                 />
-                                {errors.onsJobNumber && <p className="text-red-500 text-[10px]">{errors.onsJobNumber}</p>}
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Shipment Type *</Label>
-                                <Select value={form.shipmentType} onValueChange={v => handleChange('shipmentType', v)}>
-                                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="IMPORT">Import</SelectItem>
-                                        <SelectItem value="EXPORT">Export</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">No. of Cartons</Label>
-                                <Input type="text" value={form.noOfCtn} onChange={e => handleChange('noOfCtn', e.target.value)} placeholder="0" className="h-8 text-sm" />
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Gross Weight (kg)</Label>
-                                <Input type="number" step="0.01" value={form.grossWeight} onChange={e => handleChange('grossWeight', e.target.value)} placeholder="0.00" className="h-8 text-sm" />
-                            </div>
-                        </div>
+                                {errors.customerId && <p className="text-red-500 text-[10px] mt-1">{errors.customerId}</p>}
+                                {selectedCustomer && (
+                                    <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded-md text-[12px]">
+                                        <p className="font-semibold text-blue-900">{selectedCustomer.customerName}</p>
+                                        <p className="text-blue-700/70">IEC: {selectedCustomer.iecCode} | GST: {selectedCustomer.gstNumber}</p>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
 
-                        <div className="space-y-0.5">
-                            <Label className="text-[11px] font-semibold text-gray-700 uppercase">Description</Label>
-                            <Input value={form.description} onChange={e => handleChange('description', e.target.value)} placeholder="Shipment description" className="h-8 text-sm" />
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">MBL No</Label>
-                                <Input value={form.mblNo} onChange={e => handleChange('mblNo', e.target.value)} placeholder="Master Bill of Lading" className="h-8 text-sm" />
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">HBL No</Label>
-                                <Input value={form.hblNo} onChange={e => handleChange('hblNo', e.target.value)} placeholder="House Bill of Lading" className="h-8 text-sm" />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Vessel Name / Voyage</Label>
-                                <Input value={form.vesselNameVoyage} onChange={e => handleChange('vesselNameVoyage', e.target.value)} placeholder="Vessel & voyage" className="h-8 text-sm" />
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">CFS Name</Label>
-                                <Input value={form.cfsName} onChange={e => handleChange('cfsName', e.target.value)} placeholder="CFS name" className="h-8 text-sm" />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Liner Name</Label>
-                                <Input value={form.linerName} onChange={e => handleChange('linerName', e.target.value)} placeholder="Liner" className="h-8 text-sm" />
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Forwarder Name</Label>
-                                <Input value={form.forwarderName} onChange={e => handleChange('forwarderName', e.target.value)} placeholder="Forwarder" className="h-8 text-sm" />
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Port of Loading</Label>
-                                <Input value={form.portOfLoading} onChange={e => handleChange('portOfLoading', e.target.value)} placeholder="Port" className="h-8 text-sm" />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">ETA</Label>
-                                <Input type="date" value={form.eta} onChange={e => handleChange('eta', e.target.value)} className="h-8 text-sm" />
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Free Days (Shipping Line)</Label>
-                                <Input type="number" value={form.freeDaysShippingLine} onChange={e => handleChange('freeDaysShippingLine', e.target.value)} placeholder="0" className="h-8 text-sm" />
-                            </div>
-                            <div className="space-y-0.5">
-                                <Label className="text-[11px] font-semibold text-gray-700 uppercase">Free Days (CFS)</Label>
-                                <Input type="number" value={form.freeDaysCfs} onChange={e => handleChange('freeDaysCfs', e.target.value)} placeholder="0" className="h-8 text-sm" />
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Containers */}
-                <Card>
-                    <CardHeader className="py-2 px-3 border-b flex flex-row items-center justify-between h-10 text-sm">
-                        <CardTitle className="text-sm font-semibold">Containers</CardTitle>
-                        <Button type="button" variant="outline" size="sm" onClick={addContainer} className="h-7 gap-1 px-2 text-[11px]">
-                            <Plus className="h-3 w-3" /> Add Container
-                        </Button>
-                    </CardHeader>
-                    <CardContent className="space-y-1.5 pt-3 pb-3 px-3">
-                        {errors.containers && <p className="text-red-500 text-[10px] mb-1">{errors.containers}</p>}
-                        {containers.map((c, i) => (
-                            <div key={i} className="flex items-end gap-2 p-1.5 bg-gray-50 border border-gray-100 rounded-md">
-                                <div className="flex-1 space-y-0.5">
-                                    <Label className="text-[10px] font-semibold text-gray-600 uppercase">Container Number *</Label>
-                                    <Input
-                                        value={c.containerNumber}
-                                        onChange={e => updateContainer(i, 'containerNumber', e.target.value.toUpperCase())}
-                                        placeholder="ABCD1234567"
-                                        className={`h-8 text-sm ${errors[`container_${i}`] ? 'border-red-500' : ''}`}
-                                    />
+                        {/* Shipment Details */}
+                        <Card>
+                            <CardHeader className="py-2 px-3 border-b">
+                                <CardTitle className="text-sm font-semibold">Shipment Configuration</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-2 pt-3 pb-3 px-3 text-sm">
+                                <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
+                                    <div className="space-y-0.5">
+                                        <Label className="text-[11px] font-semibold text-gray-700 uppercase">Shipment Type *</Label>
+                                        <Select value={form.shipmentType} onValueChange={v => handleChange('shipmentType', v)}>
+                                            <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="IMPORT">Import</SelectItem>
+                                                <SelectItem value="EXPORT">Export</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                        <Label className="text-[11px] font-semibold text-gray-700 uppercase">Sub-Type *</Label>
+                                        <Select value={form.shipmentSubType} onValueChange={v => handleChange('shipmentSubType', v)}>
+                                            <SelectTrigger className="h-8 text-sm font-bold"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="HOME_CONSUMPTION">Home Consumption</SelectItem>
+                                                <SelectItem value="IN_BOND">IN Bond</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
-                                <div className="w-28 space-y-0.5">
-                                    <Label className="text-[10px] font-semibold text-gray-600 uppercase">Type</Label>
-                                    <Select value={c.containerType} onValueChange={v => updateContainer(i, 'containerType', v)}>
-                                        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="FCL">FCL</SelectItem>
-                                            <SelectItem value="LCL">LCL</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    <div className="space-y-0.5">
+                                        <Label className="text-[11px] font-semibold text-gray-700 uppercase">Job Number</Label>
+                                        <Input
+                                            value={form.onsJobNumber}
+                                            onChange={e => handleChange('onsJobNumber', e.target.value)}
+                                            placeholder="Auto"
+                                            className={`h-8 text-sm ${errors.onsJobNumber ? 'border-red-500' : ''}`}
+                                        />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                        <Label className="text-[11px] font-semibold text-gray-700 uppercase">Cartons</Label>
+                                        <Input value={form.noOfCtn} onChange={e => handleChange('noOfCtn', e.target.value)} placeholder="0" className="h-8 text-sm" />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                        <Label className="text-[11px] font-semibold text-gray-700 uppercase">Weight (kg)</Label>
+                                        <Input type="number" step="0.01" value={form.grossWeight} onChange={e => handleChange('grossWeight', e.target.value)} placeholder="0.00" className="h-8 text-sm" />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                        <Label className="text-[11px] font-semibold text-gray-700 uppercase">ETA</Label>
+                                        <Input type="date" value={form.eta} onChange={e => handleChange('eta', e.target.value)} className="h-8 text-sm" />
+                                    </div>
                                 </div>
-                                <div className="w-28 space-y-0.5">
-                                    <Label className="text-[10px] font-semibold text-gray-600 uppercase">Size</Label>
-                                    <Select value={c.containerSize} onValueChange={v => updateContainer(i, 'containerSize', v)}>
-                                        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="TWENTY">20 ft</SelectItem>
-                                            <SelectItem value="FORTY">40 ft</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+
+                                <div className="space-y-0.5">
+                                    <Label className="text-[11px] font-semibold text-gray-700 uppercase">Description</Label>
+                                    <Input value={form.description} onChange={e => handleChange('description', e.target.value)} placeholder="Goods description" className="h-8 text-sm" />
                                 </div>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8 text-gray-400 hover:text-red-500 shrink-0"
-                                    onClick={() => removeContainer(i)}
-                                    disabled={containers.length === 1}
-                                >
-                                    <Trash2 className="h-4 w-4" />
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-0.5"><Label className="text-[11px]">MBL No</Label><Input value={form.mblNo} onChange={e => handleChange('mblNo', e.target.value)} className="h-8" /></div>
+                                    <div className="space-y-0.5"><Label className="text-[11px]">HBL No</Label><Input value={form.hblNo} onChange={e => handleChange('hblNo', e.target.value)} className="h-8" /></div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {/* Containers */}
+                        <Card>
+                            <CardHeader className="py-2 px-3 border-b flex flex-row items-center justify-between h-10 text-sm">
+                                <CardTitle className="text-sm font-semibold">Containers</CardTitle>
+                                <Button type="button" variant="outline" size="sm" onClick={addContainer} className="h-7 gap-1 px-2 text-[11px]">
+                                    <Plus className="h-3 w-3" /> Add
                                 </Button>
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
+                            </CardHeader>
+                            <CardContent className="space-y-1.5 pt-3 pb-3 px-3">
+                                {containers.map((c, i) => (
+                                    <div key={i} className="flex items-end gap-2 p-1.5 bg-gray-50 border border-gray-100 rounded-md">
+                                        <div className="flex-1 space-y-0.5">
+                                            <Label className="text-[10px] uppercase font-bold text-gray-500">Number</Label>
+                                            <Input
+                                                value={c.containerNumber}
+                                                onChange={e => updateContainer(i, 'containerNumber', e.target.value.toUpperCase())}
+                                                placeholder="ABCD1234567"
+                                                className="h-8 text-sm bg-white"
+                                            />
+                                        </div>
+                                        <div className="w-32 space-y-0.5">
+                                            <Label className="text-[10px] uppercase font-bold text-gray-500">Size</Label>
+                                            <Select value={c.containerSize} onValueChange={v => updateContainer(i, 'containerSize', v)}>
+                                                <SelectTrigger className="h-8 text-sm bg-white"><SelectValue /></SelectTrigger>
+                                                <SelectContent>{CONTAINER_SIZES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-gray-400 hover:text-red-500 shrink-0"
+                                            onClick={() => removeContainer(i)}
+                                            disabled={containers.length === 1}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                ))}
+                            </CardContent>
+                        </Card>
 
-                {/* Submit */}
-                <div className="flex justify-end gap-3 pt-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => navigate('/shipments')}>Cancel</Button>
-                    <Button type="submit" size="sm" disabled={loading} className="gap-2">
-                        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                        Create Shipment
-                    </Button>
-                </div>
-            </form>
+                        {/* Submit */}
+                        <div className="flex justify-end gap-3 pt-2">
+                            <Button type="button" variant="outline" size="sm" onClick={() => navigate('/shipments')}>Cancel</Button>
+                            <Button type="submit" size="sm" disabled={loading} className="gap-2 bg-blue-600 hover:bg-blue-700">
+                                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                                Create Shipment
+                            </Button>
+                        </div>
+                </form>
+            </div>
         </div>
     );
 }

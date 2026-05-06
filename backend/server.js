@@ -4,8 +4,12 @@ const cors = require('cors');
 const path = require('path');
 const { PrismaClient } = require('@prisma/client');
 
+const { initCronJobs } = require('./src/services/cronService');
 const prisma = new PrismaClient();
 const app = express();
+
+// Initialize Cron Jobs
+initCronJobs();
 
 // Middleware
 app.use(cors());
@@ -27,6 +31,7 @@ app.use('/api/dashboard', require('./src/routes/dashboard'));
 app.use('/api/reports', require('./src/routes/reports'));
 app.use('/api/closed-jobs', require('./src/routes/closedJobs'));
 app.use('/api/users', require('./src/routes/users'));
+app.use('/api/portal', require('./src/routes/customerPortal'));
 
 // Health check
 app.get('/api/health', (req, res) => {

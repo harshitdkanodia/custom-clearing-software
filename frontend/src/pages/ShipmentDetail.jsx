@@ -11,11 +11,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import ShipmentStatusBadge from '@/components/ShipmentStatusBadge';
 import {
     ArrowLeft, Ship, Container, FileText, Loader2, Upload, CheckCircle,
-    Truck, Receipt, ClipboardList, AlertTriangle, History, Clock
+    Truck, Receipt, ClipboardList, AlertTriangle, History, Clock, Plus, Trash2, FileCheck, Share2,
+    IndianRupee, Mail, CheckCircle2, Paperclip
 } from 'lucide-react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from 'sonner';
 
 const CONTAINER_STATUSES = [
@@ -24,12 +36,6 @@ const CONTAINER_STATUSES = [
     { value: 'PORT_OUT', label: 'Port Out' },
     { value: 'CFS_IN', label: 'CFS In' },
     { value: 'CFS_OUT_DELIVERED', label: 'CFS Out / Delivered' },
-];
-
-const IGM_STATUSES = [
-    { value: 'IGM_NOT_FILED', label: 'IGM Not Filed' },
-    { value: 'AWAITING_VESSEL', label: 'Awaiting Vessel' },
-    { value: 'VESSEL_ARRIVED', label: 'Vessel Arrived' },
 ];
 
 export default function ShipmentDetail() {
@@ -44,8 +50,11 @@ export default function ShipmentDetail() {
     // Documents state
     const [doDocs, setDoDocs] = useState([]);
     const [doTypes, setDoTypes] = useState([]);
+    const [doTypeFilter, setDoTypeFilter] = useState('LOADED');
     const [filingDocs, setFilingDocs] = useState([]);
     const [filingTypes, setFilingTypes] = useState([]);
+    const [kycDocs, setKycDocs] = useState([]);
+    const [kycTypes, setKycTypes] = useState([]);
     const [boe, setBoe] = useState(null);
     const [transports, setTransports] = useState([]);
     const [transportDialog, setTransportDialog] = useState(false);
@@ -53,6 +62,13 @@ export default function ShipmentDetail() {
     const [transportSaving, setTransportSaving] = useState(false);
     const [activities, setActivities] = useState([]);
     const [loadingActivities, setLoadingActivities] = useState(false);
+    const [addOtherName, setAddOtherName] = useState('');
+    const [addingOther, setAddingOther] = useState(false);
+    const [doDetailsDialog, setDoDetailsDialog] = useState(null);
+    const [doDetailsForm, setDoDetailsForm] = useState({});
+    const [confirmDialog, setConfirmDialog] = useState(null); // { title, description, onConfirm }
+    const [otherDocDialog, setOtherDocDialog] = useState(null); // 'FILING' | 'DO'
+    const [customDocName, setCustomDocName] = useState('');
 
     const canEdit = hasRole('ADMIN', 'OPERATION_STAFF');
 
@@ -60,16 +76,19 @@ export default function ShipmentDetail() {
         try {
             const res = await api.get(`/shipments/${id}`);
             setShipment(res.data.data);
+            return res.data.data;
         } catch (err) {
             toast.error('Failed to load shipment');
+            return null;
         } finally {
             setLoading(false);
         }
     }
 
-    async function fetchDoDocs() {
+    async function fetchDoDocs(type) {
         try {
-            const res = await api.get(`/shipments/${id}/do-documents`);
+            const dt = type || doTypeFilter;
+            const res = await api.get(`/shipments/${id}/do-documents`, { params: { doType: dt } });
             setDoDocs(res.data.data);
             setDoTypes(res.data.docTypes);
         } catch (err) { console.error(err); }
@@ -100,81 +119,85 @@ export default function ShipmentDetail() {
     async function fetchActivities() {
         setLoadingActivities(true);
         try {
-            const res = await api.get(`/shipments/${id}/activity`);
+            const res = await api.get(`/shipments/${id}/activities`);
             setActivities(res.data.data);
         } catch (err) { console.error(err); }
         finally { setLoadingActivities(false); }
     }
 
+    async function fetchKycDocs(customerId) {
+        if (!customerId) return;
+        try {
+            const res = await api.get(`/customers/${customerId}/kyc-documents`);
+            setKycDocs(res.data.data);
+            setKycTypes(res.data.docTypes);
+        } catch (err) { console.error(err); }
+    }
+
+    async function handleShareLink() {
+        try {
+            const res = await api.post(`/portal/generate/${id}`);
+            const token = res.data.token;
+            const url = `${window.location.origin}/portal/${token}`;
+            await navigator.clipboard.writeText(url);
+            toast.success('Portal link copied to clipboard');
+            fetchShipment();
+        } catch (err) {
+            toast.error('Failed to generate share link');
+        }
+    }
+
     useEffect(() => {
-        fetchShipment();
+        fetchShipment().then(s => {
+            if (s?.customerId) fetchKycDocs(s.customerId);
+        });
         fetchDoDocs();
         fetchFilingDocs();
         fetchBoe();
         fetchTransports();
-        fetchActivities();
     }, [id]);
-
-    // ---- Handlers ----
-    async function handleBoeUpdate(data) {
-        setUpdating(true);
-        try {
-            await api.patch(`/shipments/${id}/boe`, data);
-            toast.success('BOE updated');
-            setUpdateDialog(null);
-            fetchBoe();
-            fetchShipment();
-        } catch (err) {
-            toast.error(err.response?.data?.error?.message || 'Update failed');
-        } finally {
-            setUpdating(false);
-        }
-    }
 
     async function handleIgmUpdate() {
         setUpdating(true);
         try {
-            await api.patch(`/shipments/${id}/igm-status`, updateForm);
-            toast.success('IGM status updated');
-            setUpdateDialog(null);
+            await api.patch(`/shipments/${id}/igm`, updateForm);
+            toast.success('IGM details updated');
             fetchShipment();
-        } catch (err) {
-            toast.error(err.response?.data?.error?.message || 'Update failed');
-        } finally {
-            setUpdating(false);
-        }
+            setUpdateDialog(null);
+        } catch (err) { toast.error('Update failed'); }
+        finally { setUpdating(false); }
     }
 
     async function handleContainerUpdate() {
         setUpdating(true);
         try {
-            await api.patch(`/shipments/${id}/containers/${updateDialog.data.id}/status`, updateForm);
-            toast.success('Container status updated');
-            setUpdateDialog(null);
+            await api.patch(`/shipments/${id}/containers/${updateForm.id}`, updateForm);
+            toast.success('Container updated');
             fetchShipment();
-        } catch (err) {
-            toast.error(err.response?.data?.error?.message || 'Update failed');
-        } finally {
-            setUpdating(false);
-        }
+            setUpdateDialog(null);
+        } catch (err) { toast.error('Update failed'); }
+        finally { setUpdating(false); }
+    }
+
+    async function handleBoeUpdate(data) {
+        setUpdating(true);
+        try {
+            await api.patch(`/shipments/${id}/boe`, data);
+            toast.success('BOE status updated');
+            fetchBoe();
+            setUpdateDialog(null);
+        } catch (err) { toast.error('Update failed'); }
+        finally { setUpdating(false); }
     }
 
     async function handleDoUpload(docType, file) {
         const formData = new FormData();
         formData.append('file', file);
         try {
-            await api.post(`/shipments/${id}/do-documents/${docType}/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            await api.post(`/shipments/${id}/do-documents/${docType}/upload?doType=${doTypeFilter}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
             toast.success('DO document uploaded');
             fetchDoDocs();
         } catch (err) { toast.error('Upload failed'); }
-    }
-
-    async function handleDoStatusChange(docType, status) {
-        try {
-            await api.patch(`/shipments/${id}/do-documents/${docType}/status`, { status });
-            toast.success('Status updated');
-            fetchDoDocs();
-        } catch (err) { toast.error('Update failed'); }
     }
 
     async function handleFilingUpload(docType, file) {
@@ -187,21 +210,287 @@ export default function ShipmentDetail() {
         } catch (err) { toast.error('Upload failed'); }
     }
 
+    async function handleDeleteDo(docId) {
+        setConfirmDialog({
+            title: 'Delete DO Document?',
+            description: 'This will remove the uploaded file for this DO requirement.',
+            onConfirm: async () => {
+                try {
+                    await api.delete(`/shipments/${id}/do-documents/${docId}`);
+                    toast.success('Document deleted');
+                    fetchDoDocs();
+                } catch (err) { toast.error('Delete failed'); }
+            }
+        });
+    }
+
+    async function handleAddOtherFiling(name) {
+        if (!name.trim()) return;
+        setAddingOther(true);
+        try {
+            await api.post(`/shipments/${id}/filing-documents/add-other`, { customType: name });
+            toast.success('Filing document added');
+            fetchFilingDocs();
+            setOtherDocDialog(null);
+            setCustomDocName('');
+        } catch (err) { toast.error('Add failed'); }
+        finally { setAddingOther(false); }
+    }
+
+    async function handleAddOtherKyc(name) {
+        if (!name.trim()) return;
+        setAddingOther(true);
+        try {
+            await api.post(`/customers/${shipment.customerId}/kyc-documents/add-other`, { customType: name });
+            toast.success('KYC document added');
+            const res = await api.get(`/customers/${shipment.customerId}/kyc-documents`);
+            setKycDocs(res.data.data);
+            setOtherDocDialog(null);
+            setCustomDocName('');
+        } catch (err) { toast.error('Add failed'); }
+        finally { setAddingOther(false); }
+    }
+
+    async function handleAddOtherTransport(transportId, name) {
+        if (!name.trim()) return;
+        setAddingOther(true);
+        try {
+            await api.post(`/shipments/transport/${transportId}/add-other`, { customType: name });
+            toast.success('Document added');
+            fetchShipment(); // Refresh all
+            setOtherDocDialog(null);
+            setCustomDocName('');
+        } catch (err) { toast.error('Add failed'); }
+        finally { setAddingOther(false); }
+    }
+
+    async function handleAddOtherDo(name) {
+        if (!name.trim()) return;
+        setAddingOther(true);
+        try {
+            await api.post(`/shipments/${id}/do-documents/add-other`, { customType: name, doType: doTypeFilter });
+            toast.success('DO document added');
+            fetchDoDocs();
+            setOtherDocDialog(null);
+            setCustomDocName('');
+        } catch (err) { toast.error('Add failed'); }
+        finally { setAddingOther(false); }
+    }
+
+    async function handleDeleteFiling(docId) {
+        setConfirmDialog({
+            title: 'Delete Filing Document?',
+            description: 'This will remove the uploaded file from this filing requirement.',
+            onConfirm: async () => {
+                try {
+                    await api.delete(`/shipments/${id}/filing-documents/${docId}`);
+                    toast.success('Document deleted');
+                    fetchFilingDocs();
+                } catch (err) { toast.error('Delete failed'); }
+            }
+        });
+    }
+
+    async function handleBoeUpload(docType, file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            await api.post(`/shipments/${id}/boe/upload/${docType}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            toast.success('BOE stage document uploaded');
+            fetchBoe();
+        } catch (err) { toast.error('Upload failed'); }
+    }
+
+    async function handleKycUpload(docType, file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            await api.post(`/customers/${shipment.customerId}/kyc-documents/${docType}/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            toast.success('KYC document uploaded');
+            const res = await api.get(`/customers/${shipment.customerId}/kyc-documents`);
+            setKycDocs(res.data.data);
+        } catch (err) { toast.error('Upload failed'); }
+    }
+
+    async function handleKycDelete(docId) {
+        setConfirmDialog({
+            title: 'Delete KYC?',
+            description: 'This will remove the custom KYC record.',
+            onConfirm: async () => {
+                try {
+                    await api.delete(`/customers/${shipment.customerId}/kyc-documents/${docId}`);
+                    toast.success('Document deleted');
+                    const res = await api.get(`/customers/${shipment.customerId}/kyc-documents`);
+                    setKycDocs(res.data.data);
+                } catch (err) { toast.error('Delete failed'); }
+            }
+        });
+    }
+
+    async function handleDeleteBoeDoc(docType) {
+        const fieldMap = {
+            'BOE': 'boeFileUrl',
+            'STAMP_DUTY': 'stampDutyFileUrl',
+            'OOC': 'oocFileUrl',
+            'GATEPASS_CUSTODIAN': 'gatepassCustodianUrl',
+            'CFS_INVOICE': 'cfsInvoiceUrl',
+        };
+        try {
+            await api.patch(`/shipments/${id}/boe`, { [fieldMap[docType]]: null });
+            toast.success('Document deleted');
+            fetchBoe();
+        } catch (err) { toast.error('Delete failed'); }
+    }
+
+    async function handleDoDetailsUpdate(e) {
+        e.preventDefault();
+        setUpdating(true);
+        try {
+            await api.patch(`/shipments/${id}/do-documents/${doDetailsForm.id}/details`, doDetailsForm);
+            toast.success('DO details updated');
+            fetchDoDocs();
+            setDoDetailsDialog(null);
+        } catch (err) { toast.error('Update failed'); }
+        finally { setUpdating(false); }
+    }
+
+    async function handleDoStatusChange(docType, status) {
+        try {
+            await api.patch(`/shipments/${id}/do-documents/${docType}/status`, { status, doType: doTypeFilter });
+            toast.success('Status updated');
+            fetchDoDocs();
+        } catch (err) { toast.error('Update failed'); }
+    }
+
+    async function handleTransportUpload(transportId, docType, file, customType) {
+        const formData = new FormData();
+        formData.append('file', file);
+        if (customType) formData.append('customType', customType);
+        try {
+            await api.post(`/shipments/${id}/transport/${transportId}/upload/${docType}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            toast.success('Transport document uploaded');
+            fetchTransports();
+        } catch (err) { toast.error('Upload failed'); }
+    }
+
+    async function handleDeleteTransport(transportId) {
+        try {
+            await api.delete(`/shipments/${id}/transport/${transportId}`);
+            toast.success('Transport record deleted');
+            fetchTransports();
+        } catch (err) { toast.error('Delete failed'); }
+    }
+
+    async function handleTransportDocDelete(docId) {
+        try {
+            await api.delete(`/shipments/transport-docs/${docId}`);
+            toast.success('Document deleted');
+            fetchTransports();
+        } catch (err) { toast.error('Delete failed'); }
+    }
+
+    async function handleAddOtherDoc(section) {
+        if (!addOtherName.trim()) return;
+        setAddingOther(true);
+        try {
+            if (section === 'do') {
+                await api.post(`/shipments/${id}/do-documents/add-other`, { customType: addOtherName, doType: doTypeFilter });
+                fetchDoDocs();
+            } else if (section === 'filing') {
+                await api.post(`/shipments/${id}/filing-documents/add-other`, { customType: addOtherName });
+                fetchFilingDocs();
+            } else if (section === 'BILLING') {
+                await handleBillingExtraDocAdd(addOtherName);
+            }
+            setAddOtherName('');
+        } catch (err) { toast.error('Failed to add document'); }
+        finally { setAddingOther(false); }
+    }
+
     async function handleTransportSubmit(e) {
         e.preventDefault();
         setTransportSaving(true);
         try {
             if (transportForm.id) {
-                await api.post(`/shipments/${id}/transport`, transportForm); // Backend handles id in body
-                toast.success('Transport updated');
+                await api.put(`/shipments/${id}/transport/${transportForm.id}`, transportForm);
             } else {
                 await api.post(`/shipments/${id}/transport`, transportForm);
-                toast.success('Transport added');
             }
+            toast.success('Transport details saved');
             setTransportDialog(false);
             fetchTransports();
-        } catch (err) { toast.error('Failed'); }
+        } catch (err) { toast.error('Save failed'); }
         finally { setTransportSaving(false); }
+    }
+
+    async function handleBillingSaveAmount(amount) {
+        try {
+            await api.patch(`/billing/${id}/bill-amount`, { billAmount: amount });
+            toast.success('Bill amount saved');
+            fetchShipment();
+        } catch (err) { toast.error('Failed to save amount'); }
+    }
+
+    async function handleBillingUpload(docType, file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            await api.post(`/billing/${id}/upload/${docType}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            toast.success('Document uploaded');
+            fetchShipment();
+        } catch (err) { toast.error('Upload failed'); }
+    }
+
+    async function handleBillingDocDelete(field) {
+        try {
+            await api.delete(`/billing/${id}/delete/${field}`);
+            toast.success('Document removed');
+            fetchShipment();
+        } catch (err) { toast.error('Delete failed'); }
+    }
+
+    async function handleBillingExtraDocAdd(customType) {
+        try {
+            await api.post(`/billing/${id}/add-other`, { customType });
+            toast.success('Extra document slot added');
+            setOtherDocDialog(null);
+            setCustomDocName('');
+            fetchShipment();
+        } catch (err) { toast.error('Failed to add slot'); }
+    }
+
+    async function handleBillingExtraDocUpload(docId, file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+            await api.post(`/billing/extra/${docId}/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+            toast.success('Document uploaded');
+            fetchShipment();
+        } catch (err) { toast.error('Upload failed'); }
+    }
+
+    async function handleBillingExtraDocDelete(docId) {
+        try {
+            await api.delete(`/billing/extra/${docId}`);
+            toast.success('Document removed');
+            fetchShipment();
+        } catch (err) { toast.error('Delete failed'); }
+    }
+
+    async function handleBillingComplete() {
+        try {
+            await api.patch(`/billing/${id}/complete`);
+            toast.success('Billing marked complete');
+            fetchShipment();
+        } catch (err) { toast.error('Failed to complete billing'); }
+    }
+
+    async function handleBillingSendEmail() {
+        try {
+            await api.post(`/billing/${id}/send-email`);
+            toast.success('Bill email sent');
+            fetchShipment();
+        } catch (err) { toast.error('Failed to send email'); }
     }
 
     if (loading) {
@@ -216,7 +505,7 @@ export default function ShipmentDetail() {
         return <Badge variant={map[status] || 'secondary'} className="text-[10px]">{status.replace(/_/g, ' ')}</Badge>;
     };
 
-    const doCompletionPct = doDocs.length > 0 ? Math.round((doDocs.filter(d => d.status === 'SENT_FOR_SUBMISSION').length / doDocs.filter(d => d.isMandatory).length) * 100) || 0 : 0;
+    const doCompletionPct = doDocs.length > 0 ? Math.round((doDocs.filter(d => d.status === 'SENT_FOR_SUBMISSION').length / Math.max(doDocs.filter(d => d.isMandatory).length, 1)) * 100) || 0 : 0;
     const filingCompletionPct = filingDocs.length > 0 ? Math.round((filingDocs.filter(d => d.status === 'UPLOADED').length / Math.max(filingDocs.filter(d => d.isMandatory).length, 1)) * 100) || 0 : 0;
 
     return (
@@ -233,33 +522,50 @@ export default function ShipmentDetail() {
                     </div>
                     <p className="text-gray-500 text-sm mt-1">{shipment.customer?.customerName}</p>
                 </div>
+                <div className="flex items-center gap-2">
+                    {canEdit && (
+                        <Button variant="outline" size="sm" onClick={() => { setUpdateDialog({ type: 'shipment' }); setUpdateForm(shipment); }} className="h-9 font-bold">
+                            Edit Job
+                        </Button>
+                    )}
+                </div>
             </div>
 
-            <Tabs defaultValue="basic" className="space-y-3">
-                <TabsList className="bg-gray-100 p-1 h-auto flex-wrap border shadow-sm">
-                    <TabsTrigger value="basic">Basic Info</TabsTrigger>
-                    <TabsTrigger value="containers">Containers ({shipment.containers?.length})</TabsTrigger>
-                    <TabsTrigger value="igm">IGM</TabsTrigger>
-                    <TabsTrigger value="do-docs">DO Docs</TabsTrigger>
-                    <TabsTrigger value="filing-docs">Filing</TabsTrigger>
-                    <TabsTrigger value="boe">BOE Status</TabsTrigger>
-                    <TabsTrigger value="transport">Transport</TabsTrigger>
-                    <TabsTrigger value="activity">Activity Log</TabsTrigger>
-                </TabsList>
+            <Tabs defaultValue="step1" className="space-y-3">
+                <div className="overflow-x-auto pb-1 scrollbar-hide">
+                    <TabsList className="bg-gray-100/80 p-1 w-full border shadow-sm flex justify-start h-auto min-w-max">
+                        <TabsTrigger value="basic" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">Basic Info</TabsTrigger>
+                        <TabsTrigger value="containers" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">Containers ({shipment.containers?.length})</TabsTrigger>
+                        <TabsTrigger value="step1" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">Filing</TabsTrigger>
+                        <TabsTrigger value="step2" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">DO Docs</TabsTrigger>
+                        <TabsTrigger value="step3" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">BOE Status</TabsTrigger>
+                        <TabsTrigger value="step4" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">Checklist</TabsTrigger>
+                        <TabsTrigger value="step6" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">KYC Docs</TabsTrigger>
+                        <TabsTrigger value="step7" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">Transport</TabsTrigger>
+                        <TabsTrigger value="step8" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">Billing</TabsTrigger>
+                        <TabsTrigger value="activity" className="text-[11px] font-bold flex-1 md:flex-none py-2 px-4">Activity Log</TabsTrigger>
+                    </TabsList>
+                </div>
 
                 <TabsContent value="basic">
                     <Card>
+                        <CardHeader className="pb-3 border-b flex items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><Ship className="h-4 w-4" /> Shipment Core Details</CardTitle>
+                            <Badge variant="blue" className="px-3 py-1 font-black text-sm">{shipment.shipmentType} / {shipment.shipmentSubType?.replace(/_/g, ' ')}</Badge>
+                        </CardHeader>
                         <CardContent className="pt-4">
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-y-2 gap-x-4 text-sm">
                                 {(() => {
-                                    const eta = shipment.eta ? new Date(shipment.eta) : null;
                                     const inward = shipment.inwardDate ? new Date(shipment.inwardDate) : null;
-                                    const shippingExpiry = eta && shipment.freeDaysShippingLine ? new Date(eta.getTime() + (shipment.freeDaysShippingLine * 24 * 60 * 60 * 1000)) : null;
-                                    const cfsExpiry = inward && shipment.freeDaysCfs ? new Date(inward.getTime() + (shipment.freeDaysCfs * 24 * 60 * 60 * 1000)) : null;
+                                    const firstCfsIn = shipment.containers?.[0]?.cfsInDate ? new Date(shipment.containers[0].cfsInDate) : null;
+                                    
+                                    const shippingExpiry = inward && shipment.freeDaysShippingLine ? new Date(inward.getTime() + (shipment.freeDaysShippingLine * 24 * 60 * 60 * 1000)) : null;
+                                    const cfsExpiry = firstCfsIn && shipment.freeDaysCfs ? new Date(firstCfsIn.getTime() + (shipment.freeDaysCfs * 24 * 60 * 60 * 1000)) : null;
 
                                     return [
                                         ['Job Number', shipment.onsJobNumber], ['Customer', shipment.customer?.customerName],
-                                        ['Type', shipment.shipmentType], ['Cartons', shipment.noOfCtn || '—'],
+                                        ['Type', shipment.shipmentType], ['Sub Type', (shipment.shipmentSubType || 'HOME_CONSUMPTION').replace(/_/g, ' ')],
+                                        ['Cartons', shipment.noOfCtn || '—'],
                                         ['Gross Weight', shipment.grossWeight ? `${shipment.grossWeight} kg` : '—'],
                                         ['Description', shipment.description || '—'], ['MBL No', shipment.mblNo || '—'],
                                         ['HBL No', shipment.hblNo || '—'], ['Vessel / Voyage', shipment.vesselNameVoyage || '—'],
@@ -270,8 +576,13 @@ export default function ShipmentDetail() {
                                         ['Shipping Line Expiry', shippingExpiry ? <span className={shippingExpiry < new Date() ? 'text-red-600 font-bold' : 'text-green-600'}>{shippingExpiry.toLocaleDateString()}</span> : '—'],
                                         ['Free Days (CFS)', `${shipment.freeDaysCfs || 0} days`],
                                         ['CFS Expiry', cfsExpiry ? <span className={cfsExpiry < new Date() ? 'text-red-600 font-bold' : 'text-green-600'}>{cfsExpiry.toLocaleDateString()}</span> : '—'],
+                                        ['IGM Details', shipment.igmNumber ? `IGM: ${shipment.igmNumber} (Item ${shipment.itemNumber})` : 'Not Filed'],
+                                        ['Inward Date', shipment.inwardDate ? new Date(shipment.inwardDate).toLocaleDateString() : '—'],
                                     ].map(([label, value]) => (
-                                        <div key={label}><p className="text-xs text-gray-400 uppercase font-bold">{label}</p><div className="font-medium mt-0.5">{value}</div></div>
+                                        <div key={label}>
+                                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{label}</p>
+                                            <div className="font-semibold mt-0.5">{value}</div>
+                                        </div>
                                     ));
                                 })()}
                             </div>
@@ -280,153 +591,382 @@ export default function ShipmentDetail() {
                 </TabsContent>
 
                 <TabsContent value="containers">
-                    <div className="space-y-2">
-                        {shipment.containers?.map(c => (
-                            <Card key={c.id}>
-                                <CardContent className="py-2.5">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-4">
-                                            <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><Container className="h-5 w-5" /></div>
-                                            <div><p className="font-mono font-bold">{c.containerNumber}</p><p className="text-xs text-gray-400">{c.containerType} · {c.containerSize}</p></div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            {containerStatusBadge(c.status)}
-                                            {canEdit && <Button variant="outline" size="sm" onClick={() => { setUpdateDialog({ type: 'container', data: c }); setUpdateForm({ status: c.status, portInDate: c.portInDate?.split?.('T')?.[0], portInCfsName: c.portInCfsName, portOutDate: c.portOutDate?.split?.('T')?.[0], cfsInDate: c.cfsInDate?.split?.('T')?.[0], cfsOutDate: c.cfsOutDate?.split?.('T')?.[0] }); }}>Update</Button>}
-                                        </div>
-                                    </div>
-                                    {(c.portInDate || c.portOutDate || c.cfsInDate || c.cfsOutDate) && (
-                                        <div className="mt-2 pt-2 border-t grid grid-cols-2 lg:grid-cols-4 gap-2 text-[10px] text-gray-500 uppercase font-bold">
-                                            {c.portInDate && <div>Port In: <span className="text-gray-900 ml-1">{new Date(c.portInDate).toLocaleDateString()}</span></div>}
-                                            {c.portOutDate && <div>Port Out: <span className="text-gray-900 ml-1">{new Date(c.portOutDate).toLocaleDateString()}</span></div>}
-                                            {c.cfsInDate && <div>CFS In: <span className="text-gray-900 ml-1">{new Date(c.cfsInDate).toLocaleDateString()}</span></div>}
-                                            {c.cfsOutDate && <div>Delivered: <span className="text-gray-900 ml-1">{new Date(c.cfsOutDate).toLocaleDateString()}</span></div>}
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                </TabsContent>
-
-                <TabsContent value="igm">
                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <CardTitle className="text-base"><Ship className="h-4 w-4 inline mr-2" /> IGM Status</CardTitle>
-                            {canEdit && <Button variant="outline" size="sm" onClick={() => { setUpdateDialog({ type: 'igm' }); setUpdateForm({ igmStatus: shipment.igmStatus, igmNumber: shipment.igmNumber || '', igmDate: shipment.igmDate?.split?.('T')?.[0], igmItemNo: shipment.igmItemNo || '', inwardDate: shipment.inwardDate?.split?.('T')?.[0] }); }}>Update</Button>}
-                        </CardHeader>
-                        <CardContent>
-                            <div className="flex flex-wrap gap-3 mb-4">
-                                {IGM_STATUSES.map((s, i) => {
-                                    const isActive = shipment.igmStatus === s.value;
-                                    const isPast = IGM_STATUSES.findIndex(x => x.value === shipment.igmStatus) >= i;
-                                    return (
-                                        <div key={s.value} className="flex items-center gap-2">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isActive ? 'bg-blue-600 text-white' : isPast ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>{i + 1}</div>
-                                            <span className={`text-sm ${isActive ? 'font-bold' : 'text-gray-400'}`}>{s.label}</span>
-                                            {i < IGM_STATUSES.length - 1 && <div className={`hidden sm:block w-8 h-0.5 ${isPast ? 'bg-green-200' : 'bg-gray-100'}`} />}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm bg-gray-50 p-2.5 rounded-lg border">
-                                <div className="space-y-1"><p className="text-[10px] text-gray-400 font-bold uppercase">IGM Number</p><p className="font-mono">{shipment.igmNumber || '—'}</p></div>
-                                <div className="space-y-1"><p className="text-[10px] text-gray-400 font-bold uppercase">IGM Date</p><p>{shipment.igmDate ? new Date(shipment.igmDate).toLocaleDateString() : '—'}</p></div>
-                                <div className="space-y-1"><p className="text-[10px] text-gray-400 font-bold uppercase">Item No</p><p>{shipment.igmItemNo || '—'}</p></div>
-                                <div className="space-y-1"><p className="text-[10px] text-gray-400 font-bold uppercase">Inward Date</p><p>{shipment.inwardDate ? new Date(shipment.inwardDate).toLocaleDateString() : '—'}</p></div>
-                            </div>
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                <TabsContent value="do-docs">
-                    <Card>
-                        <CardHeader className="pb-3 border-b">
-                            <div className="flex items-center justify-between">
-                                <CardTitle className="text-base flex items-center gap-2"><FileText className="h-4 w-4" /> DO Documents</CardTitle>
-                                <Badge variant={doCompletionPct === 100 ? 'success' : 'warning'}>{doCompletionPct}%</Badge>
-                            </div>
-                            <Progress value={doCompletionPct} className="h-1 mt-2" />
-                        </CardHeader>
                         <CardContent className="p-0">
-                            {doDocs.map(doc => <ShipmentDocumentRow key={doc.id} doc={doc} typeInfo={doTypes.find(t => t.type === doc.documentType)} canEdit={canEdit} onUpload={handleDoUpload} onStatusChange={handleDoStatusChange} statusOptions={['PENDING', 'RECEIVED', 'CHECKLIST_PENDING', 'CHECKLIST_READY', 'SENT_FOR_APPROVAL', 'APPROVED', 'SENT_FOR_SUBMISSION']} />)}
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                <TabsContent value="filing-docs">
-                    <Card>
-                        <CardHeader className="pb-3 border-b">
-                            <div className="flex items-center justify-between">
-                                <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4" /> Filing Documents</CardTitle>
-                                <Badge variant={filingCompletionPct === 100 ? 'success' : 'warning'}>{filingCompletionPct}%</Badge>
-                            </div>
-                            <Progress value={filingCompletionPct} className="h-1 mt-2" />
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            {filingDocs.map(doc => <ShipmentDocumentRow key={doc.id} doc={doc} typeInfo={filingTypes.find(t => t.type === doc.documentType)} canEdit={canEdit} onUpload={handleFilingUpload} />)}
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-
-                <TabsContent value="boe">
-                    {!boe ? <Skeleton className="h-48 w-full" /> : (
-                        <Card>
-                            <CardHeader className="py-3"><CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4 text-blue-600" /> Bill of Entry Tracking</CardTitle></CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                                    <div className="text-center md:text-left"><p className="text-[10px] text-blue-600 font-black uppercase mb-1">BOE Number</p><div className="flex items-center justify-center md:justify-start gap-2"><span className="font-mono text-lg font-bold">{boe.boeNumber || '—'}</span>{canEdit && <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-600" onClick={() => { setUpdateDialog({ type: 'boe', stage: 'BOE_FILED' }); setUpdateForm({ boeNumber: boe.boeNumber || '', boeFiledDate: boe.boeFiledDate?.split?.('T')?.[0] }); }}><History className="h-4 w-4" /></Button>}</div></div>
-                                    <div className="text-center"><p className="text-[10px] text-blue-600 font-black uppercase mb-1">Filed Date</p><p className="font-bold">{boe.boeFiledDate ? new Date(boe.boeFiledDate).toLocaleDateString() : '—'}</p></div>
-                                    <div className="text-center md:text-right"><p className="text-[10px] text-blue-600 font-black uppercase mb-1">BOE Status</p><Badge variant={boe.status === 'BOE_FILED' ? 'success' : 'secondary'}>{boe.status?.replace(/_/g, ' ') || 'PENDING'}</Badge></div>
-                                </div>
-
-                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                                    {[
-                                        { label: 'Query', stage: 'QUERY', status: boe.queryStatus, date: boe.queryRepliedDate },
-                                        { label: 'Assessment', stage: 'ASSESSMENT', status: boe.assessmentDoneDate ? 'DONE' : 'PENDING', date: boe.assessmentDoneDate },
-                                        { label: 'Registration', stage: 'REGISTRATION', status: boe.goodsRegistrationDate || boe.goodsRegistrationStatus === 'DONE' ? 'DONE' : 'PENDING', date: boe.goodsRegistrationDate },
-                                        { label: 'Examination', stage: 'EXAMINATION', status: boe.examinationDate || boe.examinationType === 'DONE' ? 'DONE' : (boe.examinationType || 'PENDING'), date: boe.examinationDate, meta: boe.examinationPercentage ? `${boe.examinationPercentage}%` : null },
-                                        { label: 'Duty', stage: 'DUTY', status: boe.dutyPaymentDate || boe.dutyPaymentStatus === 'DONE' ? 'DONE' : 'PENDING', date: boe.dutyPaymentDate },
-                                        { label: 'OOC', stage: 'OOC', status: boe.oocDate || boe.oocStatus === 'DONE' ? 'DONE' : 'PENDING', date: boe.oocDate },
-                                        { label: 'Stamp Duty', stage: 'STAMP_DUTY', status: boe.stampDutyDate || boe.stampDutyStatus === 'DONE' ? 'DONE' : 'PENDING', date: boe.stampDutyDate, meta: boe.stampDutyAmount ? `₹${boe.stampDutyAmount}` : null },
-                                    ].map((s, idx) => (
-                                        <div key={`${s.label}-${idx}`} className="bg-gray-50 p-3 rounded-lg border flex flex-col justify-between">
-                                            <div className="flex items-center justify-between mb-1.5">
-                                                <p className="text-[10px] text-gray-400 font-bold uppercase">{s.label}</p>
-                                                {canEdit && <Button variant="ghost" size="xs" onClick={() => { setUpdateDialog({ type: 'boe', stage: s.stage }); setUpdateForm({ ...boe, [s.stage.toLowerCase() + 'Date']: boe[s.stage.toLowerCase() + 'Date']?.split?.('T')?.[0] }); }}>Edit</Button>}
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex flex-col">
-                                                    <Badge variant={s.status === 'DONE' || (s.date && s.stage !== 'QUERY') ? 'success' : 'outline'} className="text-[9px] w-fit">
-                                                        {s.status?.replace(/_/g, ' ') || (s.stage === 'QUERY' ? 'NO QUERY' : 'PENDING')}
-                                                    </Badge>
-                                                    {s.meta && <span className="text-[9px] font-bold text-blue-600 mt-1">{s.meta}</span>}
-                                                </div>
-                                                {s.date && <p className="text-[10px] font-mono">{new Date(s.date).toLocaleDateString()}</p>}
-                                            </div>
-                                        </div>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Container Number</TableHead>
+                                        <TableHead>Type/Size</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>CFS IN</TableHead>
+                                        <TableHead>CFS OUT</TableHead>
+                                        {canEdit && <TableHead className="w-16"></TableHead>}
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {shipment.containers?.map(c => (
+                                        <TableRow key={c.id}>
+                                            <TableCell className="font-mono font-bold">{c.containerNumber}</TableCell>
+                                            <TableCell className="text-xs">{c.containerSize} {c.containerType}</TableCell>
+                                            <TableCell>{containerStatusBadge(c.status)}</TableCell>
+                                            <TableCell className="text-xs">{c.cfsInDate ? new Date(c.cfsInDate).toLocaleDateString() : '—'}</TableCell>
+                                            <TableCell className="text-xs">{c.cfsOutDate ? new Date(c.cfsOutDate).toLocaleDateString() : '—'}</TableCell>
+                                            {canEdit && (
+                                                <TableCell>
+                                                    <Button variant="ghost" size="xs" onClick={() => { setUpdateDialog({ type: 'container' }); setUpdateForm(c); }}>Update</Button>
+                                                </TableCell>
+                                            )}
+                                        </TableRow>
                                     ))}
-                                </div>
-
-                                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 bg-indigo-100 text-indigo-700 rounded-xl"><Truck className="h-6 w-6" /></div>
-                                        <div><p className="text-sm font-bold text-gray-900">Cargo Delivery</p><p className="text-xs text-indigo-600">{boe.deliveryStatus || 'Pending'}{boe.deliveryDate ? ` · ${new Date(boe.deliveryDate).toLocaleDateString()}` : ''}</p></div>
-                                    </div>
-                                    {canEdit && <Button variant="outline" size="sm" onClick={() => { setUpdateDialog({ type: 'boe', stage: 'DELIVERY' }); setUpdateForm({ deliveryStatus: boe.deliveryStatus || '', deliveryDate: boe.deliveryDate?.split?.('T')?.[0] }); }}>Update</Button>}
-                                </div>
-                            </CardContent>
-                        </Card>
-                    )}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
                 </TabsContent>
 
-                <TabsContent value="transport">
+                <TabsContent value="step1">
                     <Card>
-                        <CardHeader className="flex flex-row items-center justify-between">
-                            <CardTitle className="text-base flex items-center gap-2"><Truck className="h-4 w-4" /> Transport Records</CardTitle>
-                            {canEdit && <Button size="sm" onClick={() => { setTransportForm({}); setTransportDialog(true); }} className="gap-2"><Truck className="h-4 w-4" /> Add New</Button>}
+                        <CardHeader className="pb-3 border-b">
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-1">
+                                    <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4" /> Step 1: Filing Documents</CardTitle>
+                                    <div className="flex items-center gap-2">
+                                        <Badge variant="secondary" className="text-[10px] uppercase font-bold text-blue-600">{shipment.shipmentType}</Badge>
+                                        <Badge variant="outline" className="text-[10px] uppercase">{(shipment?.shipmentSubType || 'HOME_CONSUMPTION').replace(/_/g, ' ')}</Badge>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase">Filing Progress</p>
+                                    <Badge variant={filingCompletionPct === 100 ? 'success' : 'warning'}>{filingCompletionPct}%</Badge>
+                                </div>
+                            </div>
+                            <Progress value={filingCompletionPct} className="h-1.5 mt-3" />
                         </CardHeader>
-                        <CardContent className="space-y-4">
-                            {transports.length === 0 ? <p className="text-center py-12 text-gray-400">No transport records found.</p> : transports.map(t => (
+                        <CardContent className="p-0">
+                            <div className="p-4 bg-blue-50/50 border-b">
+                                <p className="text-xs text-blue-700 font-medium">Please upload all mandatory documents for <span className="font-bold">{(shipment?.shipmentSubType || 'HOME_CONSUMPTION').replace(/_/g, ' ')}</span> processing as per Step 1 of the specification.</p>
+                            </div>
+                            {filingDocs.map(doc => (
+                                <ShipmentDocumentRow 
+                                    key={doc.id} 
+                                    doc={doc} 
+                                    typeInfo={filingTypes.find(t => t.type === doc.documentType)} 
+                                    canEdit={canEdit} 
+                                    onUpload={(type, file) => {
+                                        setConfirmDialog({
+                                            title: 'Upload Document?',
+                                            description: `Do you want to upload this file as ${type.replace(/_/g, ' ')}?`,
+                                            onConfirm: () => handleFilingUpload(type, file)
+                                        });
+                                    }} 
+                                    onDelete={() => handleDeleteFiling(doc.id)}
+                                    statusOptions={['PENDING', 'UPLOADED']} 
+                                />
+                            ))}
+                            {canEdit && (
+                                <div className="p-4 flex justify-center border-t bg-gray-50/50">
+                                    <Button variant="outline" size="sm" onClick={() => setOtherDocDialog('FILING')} className="gap-2 font-bold text-blue-600 border-blue-200 hover:bg-blue-50">
+                                        <Plus className="h-4 w-4" /> Add Other Document
+                                    </Button>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="step2">
+                    <Card>
+                        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <CardTitle className="text-base flex items-center gap-2"><FileText className="h-4 w-4" /> Step 2: DO Documents</CardTitle>
+                                <Select value={doTypeFilter} onValueChange={v => { setDoTypeFilter(v); fetchDoDocs(v); }}>
+                                    <SelectTrigger className="h-8 w-32 text-xs font-bold bg-blue-50 border-blue-200"><SelectValue /></SelectTrigger>
+                                    <SelectContent><SelectItem value="LOADED">LOADED</SelectItem><SelectItem value="DESTUFF">DESTUFF</SelectItem></SelectContent>
+                                </Select>
+                            </div>
+                            <Badge variant={doCompletionPct === 100 ? 'success' : 'warning'}>{doCompletionPct}% Complete</Badge>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            {doDocs.map(doc => (
+                                <ShipmentDocumentRow 
+                                    key={doc.id} 
+                                    doc={doc} 
+                                    typeInfo={doTypes.find(t => t.type === doc.documentType)} 
+                                    canEdit={canEdit} 
+                                    onUpload={(type, file) => {
+                                        setConfirmDialog({
+                                            title: 'Upload DO Document?',
+                                            description: `Confirm upload for ${type.replace(/_/g, ' ')} (${doTypeFilter})?`,
+                                            onConfirm: () => handleDoUpload(type, file)
+                                        });
+                                    }} 
+                                    onDelete={() => handleDeleteDo(doc.id)}
+                                    onStatusChange={handleDoStatusChange} 
+                                    onEditDetails={() => {
+                                        setDoDetailsForm({
+                                            ...doc,
+                                            invoiceDate: doc.invoiceDate?.split?.('T')?.[0] || '',
+                                            receivedDate: doc.receivedDate?.split?.('T')?.[0] || '',
+                                            validityDate: doc.validityDate?.split?.('T')?.[0] || '',
+                                            paymentDate: doc.paymentDate?.split?.('T')?.[0] || '',
+                                            charges: doc.charges || '',
+                                            bankName: doc.bankName || '',
+                                            bankBranch: doc.bankBranch || '',
+                                            utrNumber: doc.utrNumber || '',
+                                            paymentStatus: doc.paymentStatus || 'PENDING'
+                                        });
+                                        setDoDetailsDialog(doc);
+                                    }}
+                                    statusOptions={['PENDING', 'SENT_FOR_SUBMISSION', 'RECEIVED']} 
+                                />
+                            ))}
+                            {canEdit && (
+                                <div className="p-4 flex justify-center border-t bg-gray-50/50">
+                                    <Button variant="outline" size="sm" onClick={() => setOtherDocDialog('DO')} className="gap-2 font-bold text-blue-600 border-blue-200 hover:bg-blue-50">
+                                        <Plus className="h-4 w-4" /> Add Other Document
+                                    </Button>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="step3">
+                    <Card>
+                        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4" /> Step 3: BOE Milestones</CardTitle>
+                            <div className="flex items-center gap-2">
+                                <p className="text-xs text-gray-500">BOE No: <span className="font-mono font-bold text-gray-900">{boe?.boeNumber || '—'}</span></p>
+                                {canEdit && <Button variant="outline" size="xs" onClick={() => { setUpdateDialog({ type: 'boe', stage: 'BASIC' }); setUpdateForm(boe || {}); }}>Edit BOE Info</Button>}
+                            </div>
+                        </CardHeader>
+                        <CardContent className="pt-4 space-y-4">
+                            {!boe ? <Skeleton className="h-48 w-full" /> : (
+                                <>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        {[
+                                            { label: 'BOE Filed', stage: 'BASIC', status: boe.boeNumber ? 'DONE' : 'PENDING', date: boe.boeFiledDate, meta: boe.boeNumber },
+                                            { label: 'Assessment', stage: 'ASSESSMENT', status: boe.assessmentDoneDate ? 'DONE' : 'PENDING', date: boe.assessmentDoneDate },
+                                            { label: 'Examination', stage: 'EXAMINATION', status: boe.examinationType || 'PENDING', date: boe.examinationDate, meta: boe.examinationType === 'RMS' ? 'RMS' : (boe.examinationPercentage ? `${boe.examinationPercentage}%` : null) },
+                                            { label: 'Duty Payment', stage: 'DUTY', status: boe.dutyPaymentDate ? 'DONE' : 'PENDING', date: boe.dutyPaymentDate },
+                                            { label: 'Stamp Duty', stage: 'STAMP_DUTY', status: boe.stampDutyDate ? 'DONE' : 'PENDING', date: boe.stampDutyDate, meta: boe.stampDutyAmount ? `₹${boe.stampDutyAmount}` : null },
+                                            { label: 'OOC', stage: 'OOC', status: boe.oocDate ? 'DONE' : 'PENDING', date: boe.oocDate },
+                                        ].map((s, idx) => (
+                                            <div key={`${s.label}-${idx}`} className="bg-gray-50 p-3 rounded-lg border flex flex-col justify-between">
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <p className="text-[10px] text-gray-400 font-bold uppercase">{s.label}</p>
+                                                    {canEdit && <Button variant="ghost" size="xs" onClick={() => { setUpdateDialog({ type: 'boe', stage: s.stage }); setUpdateForm({ ...boe, [s.stage.toLowerCase() + 'Date']: boe[s.stage.toLowerCase() + 'Date']?.split?.('T')?.[0] }); }}>Edit</Button>}
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex flex-col">
+                                                        <Badge variant={s.status === 'DONE' ? 'success' : 'outline'} className="text-[9px] w-fit">
+                                                            {s.status?.replace(/_/g, ' ')}
+                                                        </Badge>
+                                                        {s.meta && <span className="text-[9px] font-bold text-blue-600 mt-1">{s.meta}</span>}
+                                                    </div>
+                                                    {s.date && <p className="text-[10px] font-mono">{new Date(s.date).toLocaleDateString()}</p>}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="p-3 bg-indigo-100 text-indigo-700 rounded-xl"><Truck className="h-6 w-6" /></div>
+                                            <div>
+                                                <p className="text-sm font-bold text-gray-900">Cargo Delivery</p>
+                                                <p className="text-xs text-indigo-600">{boe.deliveryDate ? `DELIVERED · ${new Date(boe.deliveryDate).toLocaleDateString()}` : 'Pending'}</p>
+                                            </div>
+                                        </div>
+                                        {canEdit && <Button variant="outline" size="sm" onClick={() => { setUpdateDialog({ type: 'boe', stage: 'DELIVERY' }); setUpdateForm({ deliveryStatus: boe.deliveryStatus || '', deliveryDate: boe.deliveryDate?.split?.('T')?.[0] }); }}>Update</Button>}
+                                    </div>
+
+                                    <div className="space-y-3 pt-2">
+                                        <h4 className="text-[11px] font-black text-gray-400 uppercase tracking-wider">Stage Documents</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                            {[
+                                                { label: 'BOE Copy', type: 'BOE', url: boe.boeFileUrl, enabled: !!boe.assessmentDoneDate },
+                                                { label: 'OOC Copy', type: 'OOC', url: boe.oocFileUrl, enabled: !!boe.oocDate },
+                                                { label: 'Stamp Duty Copy', type: 'STAMP_DUTY', url: boe.stampDutyFileUrl, enabled: !!boe.stampDutyDate },
+                                                { label: 'Custodian Copy', type: 'GATEPASS_CUSTODIAN', url: boe.gatepassCustodianUrl, enabled: !!boe.oocDate },
+                                                { label: 'CFS Invoice', type: 'CFS_INVOICE', url: boe.cfsInvoiceUrl, enabled: !!boe.deliveryDate },
+                                            ].map((d) => (
+                                                <div key={d.type} className={`flex items-center justify-between p-2 rounded-lg border bg-white shadow-sm transition-opacity ${!d.enabled && !d.url ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
+                                                    <div className="flex items-center gap-2 overflow-hidden">
+                                                        <div className={`p-1.5 rounded ${d.url ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-400'}`}>
+                                                            <FileText className="h-4 w-4" />
+                                                        </div>
+                                                        <span className="text-[11px] font-bold truncate">{d.label}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        {d.url ? (
+                                                            <div className="flex items-center gap-1">
+                                                                 <Button variant="ghost" size="xs" onClick={() => window.open(d.url.startsWith('http') ? d.url : `${import.meta.env.VITE_BASE_URL || ''}${d.url}`, '_blank')} className="h-7 px-2 text-[10px] text-blue-600 font-bold">View</Button>
+                                                                 {canEdit && (
+                                                                     <>
+                                                                         <label className="cursor-pointer text-gray-400 hover:text-blue-600 p-1.5 rounded-md hover:bg-gray-100 transition-colors" title="Update / Re-upload">
+                                                                             <input type="file" className="hidden" onChange={(e) => {
+                                                                                 const file = e.target.files[0];
+                                                                                 if (file) handleBoeUpload(d.type, file);
+                                                                             }} />
+                                                                             <Upload className="h-3.5 w-3.5" />
+                                                                         </label>
+                                                                         <Button variant="ghost" size="xs" onClick={() => {
+                                                                             setConfirmDialog({
+                                                                                 title: `Delete ${d.label}?`,
+                                                                                 description: 'This will remove the file from the BOE record.',
+                                                                                 onConfirm: () => handleDeleteBoeDoc(d.type)
+                                                                             });
+                                                                         }} className="h-7 px-1 text-red-500 hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" /></Button>
+                                                                     </>
+                                                                 )}
+                                                            </div>
+                                                        ) : (canEdit && d.enabled) && (
+                                                            <label className="cursor-pointer bg-gray-100 hover:bg-gray-200 text-gray-600 px-2 py-1 rounded text-[10px] font-bold uppercase transition-colors">
+                                                                <input type="file" className="hidden" onChange={async (e) => {
+                                                                    const file = e.target.files[0];
+                                                                    if (file) {
+                                                                        setConfirmDialog({
+                                                                            title: `Upload ${d.label}?`,
+                                                                            description: 'Confirm file selection for this BOE stage.',
+                                                                            onConfirm: () => handleBoeUpload(d.type, file)
+                                                                        });
+                                                                    }
+                                                                }} />
+                                                                Upload
+                                                            </label>
+                                                        )}
+                                                        {(!d.url && !d.enabled) && (
+                                                            <Badge variant="outline" className="text-[8px] opacity-60">LOCKED</Badge>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="step4">
+                    <Card>
+                        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-600" /> Step 4: Delivery Document Checklist</CardTitle>
+                            {(() => {
+                                const checklist = [
+                                    boe?.boeFileUrl,
+                                    filingDocs.find(d => d.documentType === 'COMMERCIAL_INVOICE')?.fileUrl,
+                                    filingDocs.find(d => d.documentType === 'PACKING_LIST')?.fileUrl,
+                                    filingDocs.find(d => ['HOUSE_BL', 'MASTER_BL'].includes(d.documentType))?.fileUrl,
+                                    boe?.stampDutyFileUrl,
+                                    doDocs.find(d => d.documentType === 'DELIVERY_ORDER')?.fileUrl,
+                                    doDocs.find(d => d.documentType === 'EMPTY_LETTER')?.fileUrl,
+                                    boe?.oocFileUrl,
+                                    boe?.gatepassCustodianUrl,
+                                ];
+                                const allReady = checklist.every(url => !!url);
+                                return allReady ? (
+                                    <Badge className="bg-green-600 text-white font-black animate-pulse py-1 px-3">READY FOR DELIVERY</Badge>
+                                ) : (
+                                    <Badge variant="outline" className="text-gray-400">DOCUMENTS PENDING</Badge>
+                                );
+                            })()}
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-gray-50">
+                                            <TableHead className="w-10 text-center">#</TableHead>
+                                            <TableHead>Document Name</TableHead>
+                                            <TableHead className="text-right">Status</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {[
+                                            { name: 'BOE', url: boe?.boeFileUrl },
+                                            { name: 'Invoice', url: filingDocs.find(d => d.documentType === 'COMMERCIAL_INVOICE')?.fileUrl },
+                                            { name: 'Packing List', url: filingDocs.find(d => d.documentType === 'PACKING_LIST')?.fileUrl },
+                                            { name: 'Bill of Lading', url: filingDocs.find(d => ['HOUSE_BL', 'MASTER_BL'].includes(d.documentType))?.fileUrl },
+                                            { name: 'Stamp Duty', url: boe?.stampDutyFileUrl },
+                                            { name: 'Delivery Order', url: doDocs.find(d => d.documentType === 'DELIVERY_ORDER')?.fileUrl },
+                                            { name: 'Empty Letter', url: doDocs.find(d => d.documentType === 'EMPTY_LETTER')?.fileUrl },
+                                            { name: 'OOC Copy', url: boe?.oocFileUrl },
+                                            { name: 'Custodian Copy', url: boe?.gatepassCustodianUrl },
+                                        ].map((item, idx) => (
+                                            <TableRow key={item.name}>
+                                                <TableCell className="text-center font-mono text-xs text-gray-400">{idx + 1}</TableCell>
+                                                <TableCell className="font-bold text-sm">{item.name}</TableCell>
+                                                <TableCell className="text-right">
+                                                    {item.url ? (
+                                                        <div className="flex items-center justify-end gap-1.5">
+                                                            <Badge variant="success" className="text-[9px] px-1 h-4">READY</Badge>
+                                                            <Button variant="ghost" size="xs" onClick={() => window.open(item.url.startsWith('http') ? item.url : `${import.meta.env.VITE_BASE_URL || ''}${item.url}`, '_blank')} className="h-6 w-6 p-0 text-blue-600"><FileText className="h-3.5 w-3.5" /></Button>
+                                                        </div>
+                                                    ) : (
+                                                        <Badge variant="outline" className="text-[9px] px-1 h-4 text-gray-400">PENDING</Badge>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="step6">
+                    <Card>
+                        <CardHeader className="pb-3 border-b">
+                            <CardTitle className="text-base flex items-center gap-2"><FileCheck className="h-4 w-4" /> Step 6: KYC Documents</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            {kycDocs.map(doc => (
+                                <ShipmentDocumentRow 
+                                    key={doc.id} 
+                                    doc={doc} 
+                                    typeInfo={kycTypes.find(t => t.type === doc.documentType)} 
+                                    canEdit={canEdit} 
+                                    onUpload={(type, file) => {
+                                        setConfirmDialog({
+                                            title: 'Upload KYC?',
+                                            description: `Confirm upload for ${type.replace(/_/g, ' ')}?`,
+                                            onConfirm: () => handleKycUpload(type, file)
+                                        });
+                                    }} 
+                                    onDelete={doc.documentType === 'OTHER' ? () => {
+                                        setConfirmDialog({
+                                            title: 'Delete KYC?',
+                                            description: 'This will remove the custom KYC record.',
+                                            onConfirm: () => handleKycDelete(doc.id)
+                                        });
+                                    } : null}
+                                    statusOptions={['PENDING', 'UPLOADED']} 
+                                />
+                            ))}
+                            {canEdit && (
+                                <div className="p-4 flex justify-center border-t bg-gray-50/50">
+                                    <Button variant="outline" size="sm" onClick={() => setOtherDocDialog('KYC')} className="gap-2 font-bold text-blue-600 border-blue-200 hover:bg-blue-50">
+                                        <Plus className="h-4 w-4" /> Add Other Document
+                                    </Button>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="step7">
+                    <Card>
+                        <CardHeader className="pb-3 border-b flex items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><Truck className="h-4 w-4" /> Step 7: Transport Details</CardTitle>
+                            {canEdit && <Button size="sm" onClick={() => { setTransportForm({}); setTransportDialog(true); }} className="h-8 gap-1"><Plus className="h-3 w-3" /> Add Transporter</Button>}
+                        </CardHeader>
+                        <CardContent className="p-4 space-y-4">
+                            {transports.length === 0 ? <p className="text-center py-8 text-gray-400">No transport records added</p> : transports.map(t => (
                                 <div key={t.id} className="p-4 rounded-xl border bg-gray-50 flex items-start justify-between">
                                     <div className="space-y-1 flex-1">
                                         <div className="flex items-center gap-2"><p className="font-bold text-gray-900">{t.transporterName}</p><Badge variant="secondary" className="text-[9px]">{t.vehicleNumber}</Badge></div>
@@ -435,71 +975,306 @@ export default function ShipmentDetail() {
                                             <p>Weight: <span className="text-gray-900">{t.grossWeight ? `${t.grossWeight} kg` : '—'}</span></p>
                                             <p>From: <span className="text-gray-900">{t.transportFrom || '—'}</span></p>
                                             <p>To: <span className="text-gray-900">{t.transportTo || '—'}</span></p>
+                                            <p>Rate: <span className="text-gray-900">₹{t.transportRate ? parseFloat(t.transportRate).toLocaleString('en-IN') : '—'}</span></p>
+                                            <p>Charges: <span className="text-gray-900 font-bold">₹{t.transportCharges ? parseFloat(t.transportCharges).toLocaleString('en-IN') : '—'}</span></p>
+                                            <p>Empty/Unloading: <span className="text-gray-900">₹{t.emptyUnloadingCharges ? parseFloat(t.emptyUnloadingCharges).toLocaleString('en-IN') : '—'}</span></p>
+                                            <p>Union: <span className="text-gray-900">₹{t.unionCharges ? parseFloat(t.unionCharges).toLocaleString('en-IN') : '—'}</span></p>
+                                            <p>DO Valid Till: <span className="text-gray-900">{t.doValidTill ? new Date(t.doValidTill).toLocaleDateString() : '—'}</span></p>
+                                        </div>
+                                        
+                                        {/* Transport Documents Section */}
+                                        <div className="mt-4 pt-3 border-t">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Transport Documents</p>
+                                                {canEdit && (
+                                                    <Button variant="ghost" size="xs" className="h-5 text-[9px] text-blue-600 font-bold hover:bg-blue-50 px-2" onClick={() => {
+                                                        setOtherDocDialog('TRANSPORT');
+                                                        updateForm.currentTransportId = t.id;
+                                                    }}>+ Add Other</Button>
+                                                )}
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                {[
+                                                    { label: 'Transport Bill', type: 'TRANSPORT_BILL' },
+                                                    { label: 'Empty Unloading', type: 'EMPTY_UNLOADING' },
+                                                    ...(t.transportDocs?.filter(td => td.documentType === 'OTHER') || []).map(td => ({
+                                                        label: td.customType,
+                                                        type: 'OTHER',
+                                                        id: td.id,
+                                                        fileUrl: td.fileUrl
+                                                    }))
+                                                ].map(d => {
+                                                    const doc = d.id ? d : t.transportDocs?.find(td => td.documentType === d.type);
+                                                    return (
+                                                        <div key={d.id || d.type} className="flex items-center justify-between p-2 rounded bg-white border shadow-sm text-[10px]">
+                                                            <div className="flex items-center gap-2 pr-2 truncate">
+                                                                <div className={`p-1 rounded ${doc?.fileUrl ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-400'}`}>
+                                                                    <FileText className="h-3 w-3" />
+                                                                </div>
+                                                                <span className="font-bold truncate" title={d.label}>{d.label}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                {doc?.fileUrl ? (
+                                                                    <>
+                                                                        <Button variant="ghost" size="xs" className="h-6 px-2 text-blue-600 font-bold hover:bg-blue-50" onClick={() => window.open(doc.fileUrl.startsWith('http') ? doc.fileUrl : `${import.meta.env.VITE_BASE_URL || ''}${doc.fileUrl}`, '_blank')}>View</Button>
+                                                                        {canEdit && (
+                                                                            <Button variant="ghost" size="xs" className="h-6 w-6 p-0 text-red-500 hover:bg-red-50" onClick={() => {
+                                                                                setConfirmDialog({
+                                                                                    title: 'Delete Document?',
+                                                                                    description: `Remove ${d.label}?`,
+                                                                                    onConfirm: () => handleTransportDocDelete(doc.id)
+                                                                                });
+                                                                            }}><Trash2 className="h-3 w-3" /></Button>
+                                                                        )}
+                                                                    </>
+                                                                ) : (
+                                                                    canEdit && (
+                                                                        <label className="cursor-pointer bg-blue-600 text-white px-2 py-1 rounded text-[9px] font-black uppercase shadow-sm hover:bg-blue-700 transition-colors">
+                                                                            <input type="file" className="hidden" onChange={e => {
+                                                                                const file = e.target.files[0];
+                                                                                if (file) {
+                                                                                    setConfirmDialog({
+                                                                                        title: 'Upload Transport Doc?',
+                                                                                        description: `Confirm upload for ${d.label}?`,
+                                                                                        onConfirm: () => handleTransportUpload(t.id, d.type, file)
+                                                                                    });
+                                                                                }
+                                                                            }} />
+                                                                            Upload
+                                                                        </label>
+                                                                    )
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {canEdit && (
+                                                    <Button variant="ghost" size="xs" onClick={() => {
+                                                        setUpdateForm({ ...updateForm, currentTransportId: t.id });
+                                                        setOtherDocDialog('TRANSPORT');
+                                                    }} className="h-7 border border-dashed border-gray-300 text-[9px] font-bold text-gray-500 hover:text-blue-600 hover:border-blue-300">
+                                                        + Add Other
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
-                                    {canEdit && <Button variant="ghost" size="sm" onClick={() => { setTransportForm(t); setTransportDialog(true); }}>Edit</Button>}
+                                    {canEdit && (
+                                        <div className="flex flex-col gap-1">
+                                            <Button variant="ghost" size="sm" onClick={() => { setTransportForm(t); setTransportDialog(true); }}>Edit</Button>
+                                            <Button variant="ghost" size="sm" className="text-red-500" onClick={() => {
+                                                setConfirmDialog({
+                                                    title: 'Delete Transport Record?',
+                                                    description: 'This will permanently remove this transport entry.',
+                                                    onConfirm: () => handleDeleteTransport(t.id)
+                                                });
+                                            }}><Trash2 className="h-4 w-4" /></Button>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="step8">
+                    <Card>
+                        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><IndianRupee className="h-4 w-4" /> Step 8: Billing Details</CardTitle>
+                            <div className="flex gap-2 items-center">
+                                <Button variant="outline" size="sm" onClick={handleBillingSendEmail} className="h-8 text-xs border-blue-200 text-blue-600 hover:bg-blue-50 px-3">
+                                    <Mail className="h-3.5 w-3.5 mr-1.5" /> Send Bill Email
+                                </Button>
+                                {!shipment.billing?.isComplete && (
+                                    <Button size="sm" onClick={handleBillingComplete} className="h-8 text-xs bg-green-600 hover:bg-green-700 text-white shadow-sm px-3 font-bold">
+                                        <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> Complete Billing
+                                    </Button>
+                                )}
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-4 space-y-6">
+                            {/* Bill Amount Section */}
+                            <div className="bg-gray-50 p-4 rounded-xl border flex flex-col sm:flex-row sm:items-end gap-4">
+                                <div className="flex-1 space-y-1.5">
+                                    <Label className="text-[10px] font-black text-gray-400 uppercase">Total Bill Amount (₹)</Label>
+                                    <div className="relative">
+                                        <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                        <Input 
+                                            type="number" 
+                                            defaultValue={shipment.billing?.billAmount || ''} 
+                                            onBlur={(e) => handleBillingSaveAmount(e.target.value)}
+                                            placeholder="0.00"
+                                            className="pl-9 h-10 font-bold text-lg"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="sm:w-1/3 space-y-1">
+                                    <p className="text-[10px] font-black text-gray-400 uppercase">Billing Date</p>
+                                    <p className="text-sm font-medium">{shipment.billing?.billDate ? new Date(shipment.billing.billDate).toLocaleDateString() : 'Pending'}</p>
+                                </div>
+                            </div>
+
+                            {/* Billing Documents */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs font-black text-gray-400 uppercase tracking-wider">Standard Billing Documents</p>
+                                    <span className="text-[10px] text-gray-500 italic">Auto-fetched from BOE status where applicable</span>
+                                </div>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {[
+                                        { label: 'Final Bill', field: 'finalBillUrl', type: 'FINAL_BILL' },
+                                        { label: 'BOE Copy', field: 'boeDocUrl', type: 'BOE_DOC' },
+                                        { label: 'OOC Copy', field: 'oocDocUrl', type: 'OOC_DOC' },
+                                        { label: 'Stamp Duty', field: 'stampDutyUrl', type: 'STAMP_DUTY' },
+                                        { label: 'CFS Charges', field: 'cfsChargesUrl', type: 'CFS_CHARGES' },
+                                    ].map(doc => {
+                                        const url = shipment.billing?.[doc.field];
+                                        return (
+                                            <div key={doc.field} className="flex items-center justify-between p-3 rounded-xl border bg-white shadow-sm transition-hover hover:border-blue-200">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`p-2 rounded-lg ${url ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-400'}`}>
+                                                        <FileText className="h-4 w-4" />
+                                                    </div>
+                                                    <span className="text-sm font-bold text-gray-700">{doc.label}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    {url ? (
+                                                        <>
+                                                            <Button variant="ghost" size="xs" onClick={() => window.open(url.startsWith('http') ? url : `${import.meta.env.VITE_BASE_URL || ''}${url}`, '_blank')} className="h-8 px-3 text-blue-600 font-bold hover:bg-blue-50">View</Button>
+                                                            {canEdit && (
+                                                                <Button variant="ghost" size="xs" onClick={() => {
+                                                                    setConfirmDialog({
+                                                                        title: `Delete ${doc.label}?`,
+                                                                        description: 'This will remove the file reference.',
+                                                                        onConfirm: () => handleBillingDocDelete(doc.field)
+                                                                    });
+                                                                }} className="h-8 px-2 text-red-500 hover:bg-red-50"><Trash2 className="h-4 w-4" /></Button>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        canEdit && (
+                                                            <label className="cursor-pointer bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-black shadow-sm hover:bg-blue-700 transition-colors">
+                                                                <input type="file" className="hidden" onChange={e => {
+                                                                    const file = e.target.files[0];
+                                                                    if (file) handleBillingUpload(doc.type, file);
+                                                                }} />
+                                                                UPLOAD
+                                                            </label>
+                                                        )
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Extra Documents */}
+                            <div className="space-y-3 pt-4 border-t">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs font-black text-gray-400 uppercase tracking-wider">Extra Other Documents</p>
+                                    {canEdit && (
+                                        <Button variant="outline" size="sm" onClick={() => setOtherDocDialog('BILLING')} className="h-8 text-[10px] font-bold border-dashed px-3">
+                                            + ADD EXTRA DOCUMENT
+                                        </Button>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {(shipment.billing?.documents || []).map(doc => (
+                                        <div key={doc.id} className="flex items-center justify-between p-3 rounded-xl border bg-white shadow-sm">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`p-2 rounded-lg ${doc.fileUrl ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-400'}`}>
+                                                    <Paperclip className="h-4 w-4" />
+                                                </div>
+                                                <span className="text-sm font-bold text-gray-700">{doc.customType}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                {doc.fileUrl ? (
+                                                    <>
+                                                        <Button variant="ghost" size="xs" onClick={() => window.open(doc.fileUrl.startsWith('http') ? doc.fileUrl : `${import.meta.env.VITE_BASE_URL || ''}${doc.fileUrl}`, '_blank')} className="h-8 px-3 text-blue-600 font-bold hover:bg-blue-50">View</Button>
+                                                        {canEdit && (
+                                                            <Button variant="ghost" size="xs" onClick={() => {
+                                                                setConfirmDialog({
+                                                                    title: 'Delete Document?',
+                                                                    description: `Remove ${doc.customType}?`,
+                                                                    onConfirm: () => handleBillingExtraDocDelete(doc.id)
+                                                                });
+                                                            }} className="h-8 px-2 text-red-500 hover:bg-red-50"><Trash2 className="h-4 w-4" /></Button>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    canEdit && (
+                                                        <label className="cursor-pointer bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-black shadow-sm hover:bg-blue-700 transition-colors">
+                                                            <input type="file" className="hidden" onChange={e => {
+                                                                const file = e.target.files[0];
+                                                                if (file) handleBillingExtraDocUpload(doc.id, file);
+                                                            }} />
+                                                            UPLOAD
+                                                        </label>
+                                                    )
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </CardContent>
                     </Card>
                 </TabsContent>
 
                 <TabsContent value="activity">
                     <Card>
-                        <CardHeader><CardTitle className="text-base"><History className="h-4 w-4 inline mr-2" /> Activity Log</CardTitle></CardHeader>
-                        <CardContent className="space-y-6">
-                            {activities.map((a, i) => (
-                                <div key={a.id} className="flex gap-4 relative">
-                                    {i < activities.length - 1 && <div className="absolute left-5 top-10 bottom-0 w-0.5 bg-gray-100" />}
-                                    <div className={`w-10 h-10 rounded-full shrink-0 flex items-center justify-center z-10 ${i === 0 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}><Clock className="h-5 w-5" /></div>
-                                    <div className="flex-1 bg-white p-4 rounded-xl border shadow-sm">
-                                        <div className="flex justify-between items-center mb-1"><h4 className="text-sm font-bold">{a.action.replace(/_/g, ' ')}</h4><span className="text-[10px] text-gray-400 font-mono">{new Date(a.createdAt).toLocaleString()}</span></div>
-                                        <p className="text-xs text-gray-600 mb-2">{a.details}</p>
-                                        <div className="flex items-center gap-2"><div className="w-5 h-5 rounded-full bg-blue-50 text-[10px] font-bold text-blue-600 flex items-center justify-center uppercase">{a.user?.name?.[0]}</div><span className="text-[10px] text-gray-400">{a.user?.name} · {a.user?.role}</span></div>
-                                    </div>
+                        <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
+                            <CardTitle className="text-base flex items-center gap-2"><History className="h-4 w-4" /> Activity Log</CardTitle>
+                            <Button variant="outline" size="xs" onClick={fetchActivities} disabled={loadingActivities}>Refresh</Button>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            {loadingActivities ? <div className="p-8 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" /></div> : (
+                                <div className="divide-y max-h-[600px] overflow-y-auto">
+                                    {activities.length === 0 ? <p className="p-8 text-center text-gray-400">No activity logged yet</p> : activities.map(a => (
+                                        <div key={a.id} className="p-3 text-xs">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{a.action}</span>
+                                                <span className="text-gray-400 font-mono">{new Date(a.createdAt).toLocaleString()}</span>
+                                            </div>
+                                            <p className="text-gray-700 font-medium">{a.details}</p>
+                                            <p className="text-[10px] text-gray-400 mt-1">By: {a.user?.name || 'System'}</p>
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
+                            )}
                         </CardContent>
                     </Card>
                 </TabsContent>
             </Tabs>
 
-            {/* Update Dialogs */}
+            {/* Common Update Dialog */}
             <Dialog open={!!updateDialog} onOpenChange={() => setUpdateDialog(null)}>
                 <DialogContent>
-                    <DialogHeader><DialogTitle>{updateDialog?.type === 'igm' ? 'Update IGM' : updateDialog?.type === 'container' ? 'Update Container' : 'Update ' + updateDialog?.stage?.replace(/_/g, ' ')}</DialogTitle></DialogHeader>
-                    <div className="space-y-4 py-4 max-h-[65vh] overflow-y-auto pr-2">
-                        {updateDialog?.type === 'igm' && (
-                            <>
-                                <div className="space-y-2"><Label>IGM Status</Label><Select value={updateForm.igmStatus} onValueChange={v => setUpdateForm(p => ({ ...p, igmStatus: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{IGM_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-                                <div className="space-y-2"><Label>IGM Number</Label><Input value={updateForm.igmNumber || ''} onChange={e => setUpdateForm(p => ({ ...p, igmNumber: e.target.value }))} /></div>
-                                <div className="space-y-2"><Label>IGM Date</Label><Input type="date" value={updateForm.igmDate || ''} onChange={e => setUpdateForm(p => ({ ...p, igmDate: e.target.value }))} /></div>
-                                <div className="space-y-2"><Label>Item No</Label><Input value={updateForm.igmItemNo || ''} onChange={e => setUpdateForm(p => ({ ...p, igmItemNo: e.target.value }))} /></div>
-                                <div className="space-y-2"><Label>Inward Date</Label><Input type="date" value={updateForm.inwardDate || ''} onChange={e => setUpdateForm(p => ({ ...p, inwardDate: e.target.value }))} /></div>
-                            </>
-                        )}
+                    <DialogHeader><DialogTitle>Update {updateDialog?.type?.toUpperCase()}</DialogTitle></DialogHeader>
+                    <div className="space-y-4 py-4">
                         {updateDialog?.type === 'container' && (
                             <>
-                                <div className="space-y-2"><Label>Status</Label><Select value={updateForm.status} onValueChange={v => setUpdateForm(p => ({ ...p, status: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CONTAINER_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent></Select></div>
-                                <div className="space-y-2"><Label>Port In Date</Label><Input type="date" value={updateForm.portInDate || ''} onChange={e => setUpdateForm(p => ({ ...p, portInDate: e.target.value }))} /></div>
-                                <div className="space-y-2"><Label>CFS Name (if Port In)</Label><Input value={updateForm.portInCfsName || ''} onChange={e => setUpdateForm(p => ({ ...p, portInCfsName: e.target.value }))} /></div>
-                                <div className="space-y-2"><Label>Port Out Date</Label><Input type="date" value={updateForm.portOutDate || ''} onChange={e => setUpdateForm(p => ({ ...p, portOutDate: e.target.value }))} /></div>
-                                <div className="space-y-2"><Label>CFS In Date</Label><Input type="date" value={updateForm.cfsInDate || ''} onChange={e => setUpdateForm(p => ({ ...p, cfsInDate: e.target.value }))} /></div>
-                                <div className="space-y-2"><Label>CFS Out Date</Label><Input type="date" value={updateForm.cfsOutDate || ''} onChange={e => setUpdateForm(p => ({ ...p, cfsOutDate: e.target.value }))} /></div>
+                                <div className="space-y-2"><Label>Container Number</Label><Input value={updateForm.containerNumber || ''} disabled /></div>
+                                <div className="space-y-2">
+                                    <Label>Status</Label>
+                                    <Select value={updateForm.status} onValueChange={v => setUpdateForm({ ...updateForm, status: v })}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>{CONTAINER_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2"><Label>CFS IN Date</Label><Input type="date" value={updateForm.cfsInDate?.split?.('T')?.[0] || ''} onChange={e => setUpdateForm({ ...updateForm, cfsInDate: e.target.value })} /></div>
+                                <div className="space-y-2"><Label>CFS OUT Date</Label><Input type="date" value={updateForm.cfsOutDate?.split?.('T')?.[0] || ''} onChange={e => setUpdateForm({ ...updateForm, cfsOutDate: e.target.value })} /></div>
                             </>
                         )}
                         {updateDialog?.type === 'boe' && (
                             <>
-                                {updateDialog.stage === 'BOE_FILED' && (
+                                {updateDialog.stage === 'BASIC' && (
                                     <>
-                                        <div className="space-y-2"><Label>BOE Number (7 Digits)*</Label><Input maxLength={7} value={updateForm.boeNumber || ''} onChange={e => setUpdateForm({ ...updateForm, boeNumber: e.target.value.replace(/\D/g, '') })} /></div>
-                                        <div className="space-y-2"><Label>Filed Date*</Label><Input type="date" value={updateForm.boeFiledDate || ''} onChange={e => setUpdateForm({ ...updateForm, boeFiledDate: e.target.value })} /></div>
-                                    </>
-                                )}
-                                {updateDialog.stage === 'QUERY' && (
-                                    <>
-                                        <div className="space-y-2"><Label>Query Status</Label><Select value={updateForm.queryStatus || 'NO_QUERY'} onValueChange={v => setUpdateForm({ ...updateForm, queryStatus: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="NO_QUERY">No Query</SelectItem><SelectItem value="QUERY_RECEIVED">Query Received</SelectItem><SelectItem value="QUERY_REPLIED">Query Replied</SelectItem></SelectContent></Select></div>
-                                        <div className="space-y-2"><Label>Date</Label><Input type="date" value={updateForm.queryRepliedDate || ''} onChange={e => setUpdateForm({ ...updateForm, queryRepliedDate: e.target.value })} /></div>
+                                        <div className="space-y-2"><Label>BOE Number</Label><Input value={updateForm.boeNumber || ''} onChange={e => setUpdateForm({ ...updateForm, boeNumber: e.target.value })} maxLength={7} /></div>
+                                        <div className="space-y-2"><Label>BOE Date</Label><Input type="date" value={updateForm.boeFiledDate?.split?.('T')?.[0] || ''} onChange={e => setUpdateForm({ ...updateForm, boeFiledDate: e.target.value })} /></div>
                                     </>
                                 )}
                                 {updateDialog.stage === 'ASSESSMENT' && (
@@ -509,9 +1284,22 @@ export default function ShipmentDetail() {
                                 )}
                                 {updateDialog.stage === 'EXAMINATION' && (
                                     <>
-                                        <div className="space-y-2"><Label>Exam Type</Label><Select value={updateForm.examinationType || 'RMS'} onValueChange={v => setUpdateForm({ ...updateForm, examinationType: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="RMS">RMS</SelectItem><SelectItem value="SCRUTINY">Scrutiny</SelectItem><SelectItem value="PHYSICAL">Physical</SelectItem></SelectContent></Select></div>
-                                        <div className="space-y-2"><Label>Percentage (%)</Label><Input type="number" value={updateForm.examinationPercentage || ''} onChange={e => setUpdateForm({ ...updateForm, examinationPercentage: e.target.value })} /></div>
-                                        <div className="space-y-2"><Label>Date</Label><Input type="date" value={updateForm.examinationDate || ''} onChange={e => setUpdateForm({ ...updateForm, examinationDate: e.target.value })} /></div>
+                                        <div className="space-y-2">
+                                            <Label>Delivery / Exam Type</Label>
+                                            <Select value={updateForm.examinationType || 'RMS'} onValueChange={v => setUpdateForm({ ...updateForm, examinationType: v })}>
+                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="RMS">RMS (Skip Exam)</SelectItem>
+                                                    <SelectItem value="EXAMIN">EXAMIN (Required)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        {updateForm.examinationType === 'EXAMIN' && (
+                                            <>
+                                                <div className="space-y-2"><Label>Percentage (%)</Label><Input type="number" value={updateForm.examinationPercentage || ''} onChange={e => setUpdateForm({ ...updateForm, examinationPercentage: e.target.value })} /></div>
+                                                <div className="space-y-2"><Label>Examination Date</Label><Input type="date" value={updateForm.examinationDate || ''} onChange={e => setUpdateForm({ ...updateForm, examinationDate: e.target.value })} /></div>
+                                            </>
+                                        )}
                                     </>
                                 )}
                                 {updateDialog.stage === 'DUTY' && (
@@ -522,7 +1310,7 @@ export default function ShipmentDetail() {
                                 )}
                                 {updateDialog.stage === 'OOC' && (
                                     <>
-                                        <div className="space-y-2"><Label>OOC Status</Label><Badge>FINAL</Badge></div> {/* OOC is final status update */}
+                                        <div className="space-y-2"><Label>OOC Status</Label><Badge>FINAL</Badge></div>
                                         <div className="space-y-2"><Label>OOC Date</Label><Input type="date" value={updateForm.oocDate || ''} onChange={e => setUpdateForm({ ...updateForm, oocDate: e.target.value })} /></div>
                                     </>
                                 )}
@@ -531,9 +1319,6 @@ export default function ShipmentDetail() {
                                         <div className="space-y-2"><Label>Amount (₹)</Label><Input type="number" value={updateForm.stampDutyAmount || ''} onChange={e => setUpdateForm({ ...updateForm, stampDutyAmount: e.target.value })} /></div>
                                         <div className="space-y-2"><Label>Date</Label><Input type="date" value={updateForm.stampDutyDate || ''} onChange={e => setUpdateForm({ ...updateForm, stampDutyDate: e.target.value })} /></div>
                                     </>
-                                )}
-                                {updateDialog.stage === 'REGISTRATION' && (
-                                    <div className="space-y-2"><Label>Registration Date</Label><Input type="date" value={updateForm.goodsRegistrationDate || ''} onChange={e => setUpdateForm({ ...updateForm, goodsRegistrationDate: e.target.value })} /></div>
                                 )}
                                 {updateDialog.stage === 'DELIVERY' && (
                                     <>
@@ -547,11 +1332,40 @@ export default function ShipmentDetail() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setUpdateDialog(null)}>Cancel</Button>
                         <Button onClick={() => {
-                            if (updateDialog.type === 'igm') handleIgmUpdate();
-                            else if (updateDialog.type === 'container') handleContainerUpdate();
+                            if (updateDialog.type === 'container') handleContainerUpdate();
                             else if (updateDialog.type === 'boe') handleBoeUpdate(updateForm);
                         }} disabled={updating}>{updating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}</Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            
+            {/* DO Details Dialog */}
+            <Dialog open={!!doDetailsDialog} onOpenChange={() => setDoDetailsDialog(null)}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader><DialogTitle>Edit DO Details: {doDetailsDialog?.documentType?.replace(/_/g, ' ')}</DialogTitle></DialogHeader>
+                    <form onSubmit={handleDoDetailsUpdate} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2"><Label>Charges (₹)</Label><Input type="number" value={doDetailsForm.charges} onChange={e => setDoDetailsForm({ ...doDetailsForm, charges: e.target.value })} /></div>
+                            <div className="space-y-2"><Label>Invoice Date</Label><Input type="date" value={doDetailsForm.invoiceDate} onChange={e => setDoDetailsForm({ ...doDetailsForm, invoiceDate: e.target.value })} /></div>
+                            <div className="space-y-2"><Label>Received Date</Label><Input type="date" value={doDetailsForm.receivedDate} onChange={e => setDoDetailsForm({ ...doDetailsForm, receivedDate: e.target.value })} /></div>
+                            <div className="space-y-2"><Label>Validity Date</Label><Input type="date" value={doDetailsForm.validityDate} onChange={e => setDoDetailsForm({ ...doDetailsForm, validityDate: e.target.value })} /></div>
+                             <div className="space-y-2">
+                                <Label>{doDetailsDialog?.documentType === 'SECURITY_DEPOSIT_REFUND' ? 'Refund Status' : 'Payment Status'}</Label>
+                                <Select value={doDetailsForm.paymentStatus} onValueChange={v => setDoDetailsForm({ ...doDetailsForm, paymentStatus: v })}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent><SelectItem value="PENDING">Pending</SelectItem><SelectItem value="DONE">Done</SelectItem></SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2"><Label>Payment Date</Label><Input type="date" value={doDetailsForm.paymentDate} onChange={e => setDoDetailsForm({ ...doDetailsForm, paymentDate: e.target.value })} /></div>
+                            <div className="space-y-2"><Label>Bank Name</Label><Input value={doDetailsForm.bankName} onChange={e => setDoDetailsForm({ ...doDetailsForm, bankName: e.target.value })} /></div>
+                            <div className="space-y-2"><Label>Bank Branch</Label><Input value={doDetailsForm.bankBranch} onChange={e => setDoDetailsForm({ ...doDetailsForm, bankBranch: e.target.value })} /></div>
+                            <div className="space-y-2 col-span-2"><Label>UTR Number</Label><Input value={doDetailsForm.utrNumber} onChange={e => setDoDetailsForm({ ...doDetailsForm, utrNumber: e.target.value })} /></div>
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setDoDetailsDialog(null)}>Cancel</Button>
+                            <Button type="submit" disabled={updating}>{updating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Details'}</Button>
+                        </DialogFooter>
+                    </form>
                 </DialogContent>
             </Dialog>
 
@@ -565,10 +1379,16 @@ export default function ShipmentDetail() {
                             <div className="space-y-2"><Label>Vehicle Number</Label><Input value={transportForm.vehicleNumber || ''} onChange={e => setTransportForm(p => ({ ...p, vehicleNumber: e.target.value }))} /></div>
                             <div className="space-y-2"><Label>Driver Mobile</Label><Input value={transportForm.driverMobile || ''} onChange={e => setTransportForm(p => ({ ...p, driverMobile: e.target.value }))} /></div>
                             <div className="space-y-2"><Label>Arranged By</Label><Input value={transportForm.arrangedBy || ''} onChange={e => setTransportForm(p => ({ ...p, arrangedBy: e.target.value }))} /></div>
+                            <div className="space-y-2"><Label>GST No</Label><Input value={transportForm.gstNo || ''} onChange={e => setTransportForm(p => ({ ...p, gstNo: e.target.value }))} /></div>
+                            <div className="space-y-2"><Label>Transport Rate (₹)</Label><Input type="number" value={transportForm.transportRate || ''} onChange={e => setTransportForm(p => ({ ...p, transportRate: e.target.value }))} /></div>
+                            <div className="space-y-2"><Label>Transport Charges (₹)</Label><Input type="number" value={transportForm.transportCharges || ''} onChange={e => setTransportForm(p => ({ ...p, transportCharges: e.target.value }))} /></div>
                             <div className="space-y-2"><Label>From</Label><Input value={transportForm.transportFrom || ''} onChange={e => setTransportForm(p => ({ ...p, transportFrom: e.target.value }))} /></div>
                             <div className="space-y-2"><Label>To</Label><Input value={transportForm.transportTo || ''} onChange={e => setTransportForm(p => ({ ...p, transportTo: e.target.value }))} /></div>
+                            <div className="space-y-2"><Label>Gross Weight (kg)</Label><Input type="number" value={transportForm.grossWeight || ''} onChange={e => setTransportForm(p => ({ ...p, grossWeight: e.target.value }))} /></div>
                             <div className="space-y-2"><Label>Delivery Date</Label><Input type="date" value={transportForm.deliveryDate?.split?.('T')?.[0] || ''} onChange={e => setTransportForm(p => ({ ...p, deliveryDate: e.target.value }))} /></div>
                             <div className="space-y-2"><Label>DO Valid Till</Label><Input type="date" value={transportForm.doValidTill?.split?.('T')?.[0] || ''} onChange={e => setTransportForm(p => ({ ...p, doValidTill: e.target.value }))} /></div>
+                            <div className="space-y-2"><Label>Empty/Unloading Charges (₹)</Label><Input type="number" value={transportForm.emptyUnloadingCharges || ''} onChange={e => setTransportForm(p => ({ ...p, emptyUnloadingCharges: e.target.value }))} /></div>
+                            <div className="space-y-2"><Label>Union Charges (₹)</Label><Input type="number" value={transportForm.unionCharges || ''} onChange={e => setTransportForm(p => ({ ...p, unionCharges: e.target.value }))} /></div>
                         </div>
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setTransportDialog(false)}>Cancel</Button>
@@ -577,11 +1397,50 @@ export default function ShipmentDetail() {
                     </form>
                 </DialogContent>
             </Dialog>
+
+            {/* Confirmation AlertDialog */}
+            <AlertDialog open={!!confirmDialog} onOpenChange={() => setConfirmDialog(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-500" /> {confirmDialog?.title}</AlertDialogTitle>
+                        <AlertDialogDescription>{confirmDialog?.description}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => { confirmDialog?.onConfirm(); setConfirmDialog(null); }} className="bg-blue-600 hover:bg-blue-700">Confirm</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Other Doc Dialog */}
+            <Dialog open={!!otherDocDialog} onOpenChange={() => setOtherDocDialog(null)}>
+                <DialogContent>
+                    <DialogHeader><DialogTitle>Add Custom {otherDocDialog} Document</DialogTitle></DialogHeader>
+                    <div className="py-4 space-y-4">
+                        <div className="space-y-2">
+                            <Label>Document Name / Type</Label>
+                            <Input value={customDocName} onChange={e => setCustomDocName(e.target.value)} placeholder="e.g. Export Permit, Special License" />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setOtherDocDialog(null)}>Cancel</Button>
+                        <Button onClick={() => {
+                            if (otherDocDialog === 'FILING') handleAddOtherFiling(customDocName);
+                            else if (otherDocDialog === 'DO') handleAddOtherDo(customDocName);
+                            else if (otherDocDialog === 'KYC') handleAddOtherKyc(customDocName);
+                            else if (otherDocDialog === 'TRANSPORT') handleAddOtherTransport(updateForm.currentTransportId, customDocName);
+                            else if (otherDocDialog === 'BILLING') handleBillingExtraDocAdd(customDocName);
+                        }} disabled={addingOther || !customDocName.trim()}>
+                            {addingOther ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add Document'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
 
-function ShipmentDocumentRow({ doc, typeInfo, canEdit, onUpload, onStatusChange, statusOptions }) {
+function ShipmentDocumentRow({ doc, typeInfo, canEdit, onUpload, onDelete, onStatusChange, statusOptions, onEditDetails }) {
     const [expanded, setExpanded] = useState(false);
     const [uploading, setUploading] = useState(false);
     const hasFile = !!doc.fileUrl;
@@ -589,9 +1448,7 @@ function ShipmentDocumentRow({ doc, typeInfo, canEdit, onUpload, onStatusChange,
     async function handleFileChange(e) {
         const file = e.target.files[0];
         if (!file) return;
-        setUploading(true);
-        try { await onUpload(doc.documentType, file); }
-        finally { setUploading(false); }
+        onUpload(doc.documentType, file);
     }
 
     return (
@@ -602,18 +1459,34 @@ function ShipmentDocumentRow({ doc, typeInfo, canEdit, onUpload, onStatusChange,
                         {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : hasFile ? <CheckCircle className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
                     </div>
                     <div>
-                        <div className="flex items-center gap-2"><p className="text-sm font-bold">{typeInfo?.label || doc.documentType}</p>{doc.isMandatory && !hasFile && <Badge variant="destructive" className="text-[8px] h-4">REQ</Badge>}</div>
-                        <Badge variant="outline" className="text-[9px] mt-0.5">{doc.status.replace(/_/g, ' ')}</Badge>
+                        <div className="flex items-center gap-2"><p className="text-sm font-bold">{doc.documentType === 'OTHER' ? (doc.customType || 'Other Document') : (typeInfo?.label || doc.documentType.replace(/_/g, ' '))}</p>{doc.isMandatory && !hasFile && <Badge variant="destructive" className="text-[8px] h-4">REQUIRED</Badge>}</div>
+                        <Badge variant="outline" className="text-[9px] mt-0.5">{doc.status?.replace(/_/g, ' ') || 'PENDING'}</Badge>
                     </div>
                 </div>
                 <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                    {onEditDetails && canEdit && (
+                        <Button variant="outline" size="sm" onClick={onEditDetails} className="h-7 text-[10px] px-2 gap-1 font-bold border-blue-100 bg-blue-50/30 text-blue-700 hover:bg-blue-50"><Receipt className="h-3 w-3" /> Details</Button>
+                    )}
                     {onStatusChange && hasFile && canEdit && (
                         <Select value={doc.status} onValueChange={v => onStatusChange(doc.documentType, v)}>
-                            <SelectTrigger className="h-7 text-[10px] w-32"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="h-7 text-[10px] w-32 font-bold"><SelectValue /></SelectTrigger>
                             <SelectContent>{statusOptions.map(s => <SelectItem key={s} value={s} className="text-xs">{s.replace(/_/g, ' ')}</SelectItem>)}</SelectContent>
                         </Select>
                     )}
-                    {hasFile ? <Button variant="ghost" size="sm" className="text-blue-600 font-bold" onClick={() => setExpanded(!expanded)}>{expanded ? 'Hide' : 'View'}</Button> : canEdit && <label className="cursor-pointer bg-blue-600 text-white px-3 py-1.5 rounded-md text-[10px] font-black uppercase"><input type="file" className="hidden" onChange={handleFileChange} />Upload</label>}
+                    {hasFile ? (
+                        <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="sm" className="text-blue-600 font-bold h-7 px-3 hover:bg-blue-50" onClick={() => setExpanded(!expanded)}>{expanded ? 'Hide' : 'View'}</Button>
+                            {canEdit && (
+                                <>
+                                    <label className="cursor-pointer text-gray-400 hover:text-blue-600 p-1.5 rounded-md hover:bg-gray-100 transition-colors" title="Update / Re-upload">
+                                        <input type="file" className="hidden" onChange={handleFileChange} />
+                                        <Upload className="h-4 w-4" />
+                                    </label>
+                                    {onDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors" onClick={onDelete}><Trash2 className="h-4 w-4" /></Button>}
+                                </>
+                            )}
+                        </div>
+                    ) : canEdit && <label className="cursor-pointer bg-blue-600 text-white px-4 py-1.5 rounded-md text-[10px] font-black uppercase shadow-sm hover:bg-blue-700 transition-all"><input type="file" className="hidden" onChange={handleFileChange} />Upload</label>}
                 </div>
             </div>
             {expanded && hasFile && <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-200"><div className="rounded-xl border bg-gray-100 overflow-hidden min-h-[500px] flex items-center justify-center"><DocPreview url={doc.fileUrl} /></div></div>}

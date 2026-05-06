@@ -9,6 +9,7 @@ import Dashboard from '@/pages/Dashboard';
 import Customers from '@/pages/Customers';
 import CustomerDetail from '@/pages/CustomerDetail';
 import ShipmentList from '@/pages/ShipmentList';
+import Jobs from '@/pages/Jobs';
 import AddShipment from '@/pages/AddShipment';
 import ShipmentDetail from '@/pages/ShipmentDetail';
 import Billing from '@/pages/Billing';
@@ -32,6 +33,8 @@ const queryClient = new QueryClient({
   },
 });
 
+import PublicShipmentPortal from '@/pages/PublicShipmentPortal';
+
 function App() {
   return (
     <ErrorBoundary>
@@ -40,6 +43,7 @@ function App() {
           <Routes>
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
+            <Route path="/portal/:token" element={<PublicShipmentPortal />} />
             <Route path="/unauthorized" element={<Unauthorized />} />
 
             {/* Protected routes inside Layout */}
@@ -55,6 +59,7 @@ function App() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="customers" element={<Customers />} />
               <Route path="customers/:id" element={<CustomerDetail />} />
+              <Route path="jobs" element={<Jobs />} />
               <Route path="shipments" element={<ShipmentList />} />
               <Route path="shipments/new" element={<AddShipment />} />
               <Route path="shipments/:id" element={<ShipmentDetail />} />
