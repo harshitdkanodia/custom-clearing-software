@@ -5,7 +5,7 @@ const router = express.Router();
 const { verifyToken, requireRole } = require('../middleware/auth');
 const {
     createShipment, getShipments, getShipment,
-    updateShipment, updateIgmStatus, updateContainerStatus, getShipmentActivity,
+    updateShipment, updateIgmStatus, updateContainer, updateContainerStatus, getShipmentActivity,
     getTransports, createOrUpdateTransport, deleteTransport,
     deleteShipment
 } = require('../controllers/shipmentController');
@@ -23,9 +23,11 @@ router.use(verifyToken);
 router.get('/', getShipments);
 router.get('/:id', getShipment);
 router.get('/:id/activity', getShipmentActivity);
+router.get('/:id/activities', getShipmentActivity);
 router.post('/', requireRole('ADMIN', 'OPERATION_STAFF'), createShipment);
 router.put('/:id', requireRole('ADMIN', 'OPERATION_STAFF'), updateShipment);
 router.patch('/:id/igm-status', requireRole('ADMIN', 'OPERATION_STAFF'), updateIgmStatus);
+router.patch('/:id/containers/:containerId', requireRole('ADMIN', 'OPERATION_STAFF'), updateContainer);
 router.patch('/:id/containers/:containerId/status', requireRole('ADMIN', 'OPERATION_STAFF'), updateContainerStatus);
 router.get('/:id/boe', getBoeStatus);
 router.patch('/:id/boe', requireRole('ADMIN', 'OPERATION_STAFF'), updateBoeStatus);

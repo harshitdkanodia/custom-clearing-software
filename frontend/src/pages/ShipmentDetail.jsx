@@ -523,11 +523,6 @@ export default function ShipmentDetail() {
                     <p className="text-gray-500 text-sm mt-1">{shipment.customer?.customerName}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    {canEdit && (
-                        <Button variant="outline" size="sm" onClick={() => { setUpdateDialog({ type: 'shipment' }); setUpdateForm(shipment); }} className="h-9 font-bold">
-                            Edit Job
-                        </Button>
-                    )}
                 </div>
             </div>
 
