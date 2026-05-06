@@ -48,6 +48,7 @@ model Shipment {
     onsJobNumber         String    @unique
     customerId           Int
     shipmentType         String // IMPORT | EXPORT
+    shipmentSubType      String    @default("HOME_CONSUMPTION") // HOME_CONSUMPTION | IN_BOND
     noOfCtn              Int?
     description          String?
     grossWeight          Float?
@@ -66,10 +67,11 @@ model Shipment {
     igmDate              DateTime?
     igmItemNo            String?
     inwardDate           DateTime?
-    status               String    @default("ACTIVE") // ACTIVE | READY_FOR_BILLING | READY_FOR_COURIER | CLOSED
+    status               String    @default("JOBS_CREATED") // JOBS_CREATED | DOCUMENT_PENDING | CHECKLIST_PENDING | CHECKLIST_READY | CHECKLIST_SENT_FOR_APPROVAL | IGM_PENDING | IGM_UPDATED_CHECKLIST_SENT_FOR_APPROVAL | READY_FOR_SUBMISSION | JOB_SENT_FOR_SUBMISSION | BOE_GENERATED | BOE_STATUS | ASSESSMENT_DONE | EXAMINATION_PENDING | OOC_PENDING | CUSTOM_DUTY_PENDING | CUSTOM_DUTY_PAYMENT_DONE | STAMP_DUTY_PENDING | STAMP_DUTY_DONE | OOC_DONE | READY_FOR_DELIVERY | DELIVERED | BILLING_DONE | READY_FOR_BILLING | READY_FOR_COURIER | CLOSED
     doChecklistComplete  Boolean   @default(false)
     filingComplete       Boolean   @default(false)
     billingComplete      Boolean   @default(false)
+    shareToken           String?
     createdAt            DateTime  @default(now())
     updatedAt            DateTime  @updatedAt
 
@@ -90,7 +92,7 @@ model Container {
     shipmentId      Int
     containerNumber String
     containerType   String // LCL | FCL
-    containerSize   String // TWENTY | FORTY
+    containerSize   String // TWENTY | FORTY | TWENTY_HQ | FORTY_HQ | TWENTY_OT | FORTY_OT | TWENTY_FT | FORTY_FT
     status          String    @default("AWAITING_VESSEL") // AWAITING_VESSEL | PORT_IN | PORT_OUT | CFS_IN | CFS_OUT_DELIVERED
     portInDate      DateTime?
     portInCfsName   String?
@@ -104,12 +106,24 @@ model Container {
 model DoDocument {
     id           Int       @id @default(autoincrement())
     shipmentId   Int
-    documentType String // MBL | HBL | SECURITY_DEPOSIT | INSURANCE | LOADED_DESTUFF | EMAIL_SHIPPING_LINE | IMPORTER_KYC | BOND_FORMAT | DO_CHARGES | DELIVERY_ORDER | EMPTY_LETTER
+    documentType String // MBL | HBL | ENDORSED_BL | SECURITY_DEPOSIT | SECURITY_DEPOSIT_REFUND | INSURANCE | IMPORTER_KYC | BOND_FORMAT | DO_CHARGES | DELIVERY_ORDER | EMPTY_LETTER | OTHER
+    doType       String    @default("LOADED") // LOADED | DESTUFF
     isMandatory  Boolean   @default(false)
     fileUrl      String?
     uploadedAt   DateTime?
     status       String    @default("PENDING") // PENDING | RECEIVED | CHECKLIST_PENDING | CHECKLIST_READY | SENT_FOR_APPROVAL | APPROVED | SENT_FOR_SUBMISSION
     statusDate   DateTime?
+    customType   String?
+    charges      Float?
+    invoiceDate  DateTime?
+    receivedDate DateTime?
+    validityDate DateTime?
+    paymentStatus String?
+
+    bankName     String?
+    bankBranch   String?
+    utrNumber    String?
+    paymentDate  DateTime?
 
     shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 }
@@ -117,11 +131,12 @@ model DoDocument {
 model FilingDocument {
     id           Int       @id @default(autoincrement())
     shipmentId   Int
-    documentType String // BL | INVOICE | PL | COO | BIS | FREIGHT_CERT | INSURANCE_CERT | SIMS | PIMS | NFIMS | CHIMS | REEIMS | LICENCE | EPRA_PLASTIC | EPRA_EWASTE | EPRA_BATTERY | ETA_WPC | PHYTOSANITARY | FSSAI | OTHER
+    documentType String // COMMERCIAL_INVOICE | PACKING_LIST | HOUSE_BL | MASTER_BL | COO | FREIGHT_CERT | INSURANCE | BIS | LMPC | EPRA_PLASTIC | EPRA_EWASTE | CATALOGUE | AUTHORITY_LETTER | DIMENSION_CERT | SPACE_CERT | BOND_LICENSE | TRANSIT_INSURANCE | OT_PHOTOS | CHA_AUTH_DOCS | OTHER
     isMandatory  Boolean   @default(false)
     fileUrl      String?
     uploadedAt   DateTime?
     status       String    @default("PENDING") // PENDING | UPLOADED
+    customType   String?
 
     shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
 }
@@ -129,11 +144,12 @@ model FilingDocument {
 model ChaKycDocument {
     id           Int       @id @default(autoincrement())
     customerId   Int
-    documentType String // KYC_FORM | AUTHORITY_LETTER | IEC | GST | ELECTRICITY_BILL | PAN | TAN | AD_CODE | CANCELLED_CHEQUE | FIRM_REGISTRATION | CENTRAL_EXCISE | AADHAR_PAN_PARTNER
+    documentType String // IEC | GST | AUTHORITY_LETTER | PAN | ELECTRICITY_BILL | CANCELLED_CHEQUE | TAN | OTHER
     isMandatory  Boolean   @default(false)
     fileUrl      String?
     uploadedAt   DateTime?
     status       String    @default("PENDING") // PENDING | UPLOADED
+    customType   String?
 
     customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 }
@@ -144,6 +160,7 @@ model BoeStatus {
     status                  String    @default("BOE_NOT_FILED") // BOE_NOT_FILED | BOE_FILED | UNDER_ASSESSMENT | ASSESSMENT_DONE | GOODS_REGISTRATION | EXAMINATION | DUTY_PAYMENT | OOC | STAMP_DUTY | DELIVERY
     boeNumber               String? // 7 digits
     boeFiledDate            DateTime?
+    boeFileUrl              String?
     queryStatus             String? // QUERY_REPLY_PENDING | QUERY_REPLIED
     queryRepliedDate        DateTime?
     assessmentDoneDate      DateTime?
@@ -156,9 +173,14 @@ model BoeStatus {
     dutyPaymentDate         DateTime?
     oocStatus               String? // PENDING | DONE
     oocDate                 DateTime?
+    oocFileUrl              String?
+    gatepassCustodianUrl    String?
     stampDutyStatus         String? // PENDING | DONE
     stampDutyDate           DateTime?
     stampDutyAmount         Float?
+    stampDutyFileUrl        String?
+    cfsCharges              Float?
+    cfsInvoiceUrl           String?
     deliveryStatus          String? // PENDING | DELIVERED
     deliveryDate            DateTime?
 
@@ -166,24 +188,36 @@ model BoeStatus {
 }
 
 model Billing {
-    id                  Int       @id @default(autoincrement())
-    shipmentId          Int       @unique
-    finalBillUrl        String?
-    stampDutyUrl        String?
-    cfsChargesUrl       String?
-    transportChargesUrl String?
-    firstTimeImportUrl  String?
-    deliveryChargesUrl  String?
-    oocDocUrl           String?
-    boeDocUrl           String?
-    insuranceUrl        String?
-    unionChargesUrl     String?
-    billAmount          Float?
-    billDate            DateTime?
-    billEmailSentDate   DateTime?
-    isComplete          Boolean   @default(false)
+  id                  Int      @id @default(autoincrement())
+  shipmentId          Int      @unique
+  finalBillUrl        String?
+  stampDutyUrl        String?
+  cfsChargesUrl       String?
+  transportChargesUrl String?
+  firstTimeImportUrl  String?
+  deliveryChargesUrl  String?
+  oocDocUrl           String?
+  boeDocUrl           String?
+  insuranceUrl        String?
+  unionChargesUrl     String?
+  billAmount          Float?
+  billDate            DateTime?
+  billEmailSentDate   DateTime?
+  isComplete          Boolean  @default(false)
 
-    shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  shipment  Shipment          @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  documents BillingDocument[]
+}
+
+model BillingDocument {
+  id           Int      @id @default(autoincrement())
+  billingId    Int
+  documentType String   // FINAL_BILL | STAMP_DUTY | OTHER
+  customType   String?
+  fileUrl      String
+  uploadedAt   DateTime @default(now())
+
+  billing Billing @relation(fields: [billingId], references: [id], onDelete: Cascade)
 }
 
 model Courier {
@@ -205,6 +239,8 @@ model Transport {
     gstNo                 String?
     vehicleNumber         String?
     driverMobile          String?
+    transportRate         Float?
+    transportCharges      Float?
     emptyUnloadingCharges Float?
     unionCharges          Float?
     doValidTill           DateTime?
@@ -213,13 +249,30 @@ model Transport {
     grossWeight           Float?
     deliveryDate          DateTime?
 
-    shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+    transportBillUrl      String?
+    emptyUnloadingDocUrl  String?
+    otherDocUrl           String?
+    otherDocType          String?
+
+    shipment      Shipment            @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+    transportDocs TransportDocument[]
+}
+
+model TransportDocument {
+    id           Int      @id @default(autoincrement())
+    transportId  Int
+    documentType String // TRANSPORT_BILL | EMPTY_UNLOADING | OTHER
+    customType   String?
+    fileUrl      String
+    uploadedAt   DateTime @default(now())
+
+    transport Transport @relation(fields: [transportId], references: [id], onDelete: Cascade)
 }
 
 model Alert {
     id         Int      @id @default(autoincrement())
     shipmentId Int
-    alertType  String // ETA_TOMORROW | FREE_DAY_EXPIRY | DPD_PORT_IN | IGM_UPDATE | BOE_UPDATE | DO_UPDATE | CONTAINER_UPDATE
+    alertType  String // ETA_ALERT | DO_VALIDITY_EXPIRING | SHIPPING_LINE_FREE_DAYS_EXPIRING | CFS_FREE_DAYS_EXPIRING | DPD_PORT_IN | IGM_UPDATE | BOE_UPDATE | DO_UPDATE | CONTAINER_UPDATE
     message    String
     isRead     Boolean  @default(false)
     createdAt  DateTime @default(now())

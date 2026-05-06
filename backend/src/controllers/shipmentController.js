@@ -40,7 +40,7 @@ async function generateNextJobNumber() {
 async function createShipment(req, res) {
     try {
         let {
-            onsJobNumber, customerId, shipmentType, noOfCtn, description, grossWeight, cfsName,
+            onsJobNumber, customerId, shipmentType, shipmentSubType, noOfCtn, description, grossWeight, cfsName,
             mblNo, hblNo, vesselNameVoyage, linerName, forwarderName, portOfLoading,
             eta, freeDaysShippingLine, freeDaysCfs, containers
         } = req.body;
@@ -98,6 +98,7 @@ async function createShipment(req, res) {
                 onsJobNumber: onsJobNumber.toString(),
                 customerId: parseInt(customerId),
                 shipmentType,
+                shipmentSubType: shipmentSubType || 'HOME_CONSUMPTION',
                 noOfCtn: noOfCtn ? parseInt(noOfCtn) : null,
                 description: description || null,
                 grossWeight: grossWeight ? parseFloat(grossWeight) : null,
@@ -188,7 +189,9 @@ async function getShipment(req, res) {
                 doDocuments: true,
                 filingDocuments: true,
                 boeStatus: true,
-                billing: true,
+                billing: {
+                    include: { documents: true }
+                },
                 courier: true,
                 transports: true,
                 alerts: { orderBy: { createdAt: 'desc' }, take: 20 },
@@ -211,7 +214,7 @@ async function updateShipment(req, res) {
     try {
         const id = parseInt(req.params.id);
         const {
-            shipmentType, noOfCtn, description, grossWeight, cfsName,
+            shipmentType, shipmentSubType, noOfCtn, description, grossWeight, cfsName,
             mblNo, hblNo, vesselNameVoyage, linerName, forwarderName,
             portOfLoading, eta, freeDaysShippingLine, freeDaysCfs
         } = req.body;
@@ -219,7 +222,8 @@ async function updateShipment(req, res) {
         const shipment = await prisma.shipment.update({
             where: { id },
             data: {
-                shipmentType, noOfCtn: noOfCtn ? parseInt(noOfCtn) : null,
+                shipmentType, shipmentSubType: shipmentSubType || undefined,
+                noOfCtn: noOfCtn ? parseInt(noOfCtn) : null,
                 description, grossWeight: grossWeight ? parseFloat(grossWeight) : null,
                 cfsName, mblNo, hblNo, vesselNameVoyage, linerName, forwarderName,
                 portOfLoading, eta: eta ? new Date(eta) : null,
@@ -331,6 +335,7 @@ async function getTransports(req, res) {
     try {
         const transports = await prisma.transport.findMany({
             where: { shipmentId: parseInt(req.params.id) },
+            include: { transportDocs: true }
         });
         res.json({ success: true, data: transports });
     } catch (err) {
@@ -347,6 +352,11 @@ async function createOrUpdateTransport(req, res) {
         // Convert dates
         ['deliveryDate', 'doValidTill'].forEach(f => {
             if (data[f]) data[f] = new Date(data[f]);
+        });
+
+        // Convert floats
+        ['transportRate', 'grossWeight', 'emptyUnloadingCharges', 'unionCharges'].forEach(f => {
+            if (data[f]) data[f] = parseFloat(data[f]) || 0;
         });
 
         let transport;
@@ -420,9 +430,20 @@ async function deleteShipment(req, res) {
     }
 }
 
+async function deleteTransport(req, res) {
+    try {
+        const transportId = parseInt(req.params.transportId);
+        await prisma.transport.delete({ where: { id: transportId } });
+        res.json({ success: true, message: 'Transport record deleted' });
+    } catch (err) {
+        console.error('Delete transport error:', err);
+        res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to delete transport' } });
+    }
+}
+
 module.exports = {
     createShipment, getShipments, getShipment, updateShipment,
     updateIgmStatus, updateContainerStatus, getShipmentActivity,
-    getTransports, createOrUpdateTransport,
+    getTransports, createOrUpdateTransport, deleteTransport,
     deleteShipment
 };

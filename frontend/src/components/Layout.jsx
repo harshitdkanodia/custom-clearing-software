@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import {
     LayoutDashboard, Users, Ship, FileText, FolderOpen, Receipt,
     Truck, BarChart2, Settings, LogOut, ChevronLeft, ChevronRight,
-    Package, ClipboardList, Archive, Bell, Menu, X
+    Package, ClipboardList, Archive, Bell, Menu, X, Briefcase
 } from 'lucide-react';
 
 const NAV_SECTIONS = [
@@ -19,6 +19,7 @@ const NAV_SECTIONS = [
         title: 'Operations',
         items: [
             { to: '/customers', icon: Users, label: 'Customers' },
+            { to: '/jobs', icon: Briefcase, label: 'Jobs' },
             { to: '/shipments', icon: Ship, label: 'Shipments' },
         ]
     },

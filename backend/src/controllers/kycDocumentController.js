@@ -1,19 +1,16 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// KYC documents per spec Step 6
 const KYC_DOC_TYPES = [
-    { type: 'KYC_FORM', label: 'KYC Form', mandatory: true },
-    { type: 'AUTHORITY_LETTER', label: 'Authority Letter', mandatory: true },
     { type: 'IEC', label: 'IEC Copy', mandatory: true },
     { type: 'GST', label: 'GST Certificate', mandatory: true },
-    { type: 'ELECTRICITY_BILL', label: 'Electricity Bill', mandatory: false },
+    { type: 'AUTHORITY_LETTER', label: 'Authority Letter', mandatory: true },
     { type: 'PAN', label: 'PAN Card', mandatory: true },
-    { type: 'TAN', label: 'TAN', mandatory: false },
-    { type: 'AD_CODE', label: 'AD Code', mandatory: false },
+    { type: 'ELECTRICITY_BILL', label: 'Electricity / Telephone Bill', mandatory: false },
     { type: 'CANCELLED_CHEQUE', label: 'Cancelled Cheque', mandatory: false },
-    { type: 'FIRM_REGISTRATION', label: 'Firm Registration', mandatory: false },
-    { type: 'CENTRAL_EXCISE', label: 'Central Excise', mandatory: false },
-    { type: 'AADHAR_PAN_PARTNER', label: 'Aadhar/PAN of Partner', mandatory: false },
+    { type: 'TAN', label: 'TAN Copy', mandatory: false },
+    { type: 'OTHER', label: 'Other Document', mandatory: false },
 ];
 
 async function getKycDocuments(req, res) {
@@ -50,13 +47,45 @@ async function uploadKycDocument(req, res) {
     }
 }
 
+// POST /api/customers/:id/kyc-documents/add-other
+async function addOtherKycDocument(req, res) {
+    try {
+        const customerId = parseInt(req.params.id);
+        const { customType } = req.body;
+
+        if (!customType?.trim()) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Custom type name is required' } });
+        }
+
+        const doc = await prisma.chaKycDocument.create({
+            data: {
+                customerId,
+                documentType: 'OTHER',
+                isMandatory: false,
+                customType: customType.trim(),
+            },
+        });
+
+        res.status(201).json({ success: true, data: doc });
+    } catch (err) {
+        console.error('Add other KYC doc error:', err);
+        res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to add document' } });
+    }
+}
+
 async function deleteKycDocument(req, res) {
     try {
         const docId = parseInt(req.params.docId);
-        await prisma.chaKycDocument.update({
-            where: { id: docId },
-            data: { fileUrl: null, uploadedAt: null, status: 'PENDING' },
-        });
+        const doc = await prisma.chaKycDocument.findUnique({ where: { id: docId } });
+
+        if (doc?.documentType === 'OTHER') {
+            await prisma.chaKycDocument.delete({ where: { id: docId } });
+        } else {
+            await prisma.chaKycDocument.update({
+                where: { id: docId },
+                data: { fileUrl: null, uploadedAt: null, status: 'PENDING' },
+            });
+        }
         res.json({ success: true, message: 'KYC document removed' });
     } catch (err) {
         console.error('Delete KYC document error:', err);
@@ -64,4 +93,4 @@ async function deleteKycDocument(req, res) {
     }
 }
 
-module.exports = { getKycDocuments, uploadKycDocument, deleteKycDocument, KYC_DOC_TYPES };
+module.exports = { getKycDocuments, uploadKycDocument, deleteKycDocument, addOtherKycDocument, KYC_DOC_TYPES };

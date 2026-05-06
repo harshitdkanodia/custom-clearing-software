@@ -114,6 +114,8 @@ export default function ClosedJobs() {
                             <TableHead className="font-semibold">Job No.</TableHead>
                             <TableHead className="font-semibold">Customer</TableHead>
                             <TableHead className="font-semibold">Bill Amount</TableHead>
+                            <TableHead className="font-semibold">Bill Date</TableHead>
+                            <TableHead className="font-semibold">Email Sent</TableHead>
                             <TableHead className="font-semibold">Courier</TableHead>
                             <TableHead className="font-semibold">Closed Date</TableHead>
                             <TableHead className="font-semibold text-right">Actions</TableHead>
@@ -145,6 +147,12 @@ export default function ClosedJobs() {
                                             ? <span className="font-semibold text-gray-800">₹{parseFloat(j.billing.billAmount).toLocaleString('en-IN')}</span>
                                             : <span className="text-gray-400">—</span>
                                         }
+                                    </TableCell>
+                                    <TableCell className="text-xs text-gray-600">
+                                        {j.billing?.billDate ? new Date(j.billing.billDate).toLocaleDateString('en-IN') : '—'}
+                                    </TableCell>
+                                    <TableCell className="text-xs text-gray-600">
+                                        {j.billing?.billEmailSentDate ? new Date(j.billing.billEmailSentDate).toLocaleDateString('en-IN') : '—'}
                                     </TableCell>
                                     <TableCell className="text-sm text-gray-600">{j.courier?.courierName || '—'}</TableCell>
                                     <TableCell className="text-xs text-gray-600">

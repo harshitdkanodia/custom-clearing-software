@@ -19,19 +19,26 @@ async function getBoeStatus(req, res) {
 }
 
 /**
- * Helper to determine the current status based on completed stages
+ * Full status flow from spec Step 10.1:
+ * BOE_NOT_FILED → BOE_FILED → UNDER_ASSESSMENT → ASSESSMENT_DONE →
+ * GOODS_REGISTRATION → EXAMINATION (or RMS skip) →
+ * DUTY_PAYMENT → OOC → STAMP_DUTY → DELIVERY
  */
 function calculateBoeStatus(boe) {
-    if (boe.deliveryStatus === 'DELIVERED' || boe.deliveryDate) return 'DELIVERY';
-    if (boe.stampDutyStatus === 'DONE' || boe.stampDutyDate) return 'STAMP_DUTY';
-    if (boe.oocStatus === 'DONE' || boe.oocDate) return 'OOC';
-    if (boe.dutyPaymentStatus === 'DONE' || boe.dutyPaymentDate) return 'DUTY_PAYMENT';
-    if (boe.examinationType === 'DONE' || boe.examinationDate) return 'EXAMINATION';
-    if (boe.goodsRegistrationStatus === 'DONE' || boe.goodsRegistrationDate) return 'GOODS_REGISTRATION';
+    if (boe.deliveryDate) return 'DELIVERED';
+    if (boe.oocDate) return 'OOC_DONE';
+    if (boe.stampDutyDate) return 'STAMP_DUTY_DONE';
+    if (boe.dutyPaymentDate) return 'CUSTOM_DUTY_PAYMENT_DONE';
+    
+    // OOC Pending depends on RMS or Examination
+    if (boe.examinationType === 'RMS') return 'OOC_PENDING';
+    if (boe.examinationType === 'EXAMIN' && boe.examinationDate) return 'OOC_PENDING';
+    if (boe.examinationType === 'EXAMIN') return 'EXAMINATION_PENDING';
+    
     if (boe.assessmentDoneDate) return 'ASSESSMENT_DONE';
-    if (boe.queryStatus === 'QUERY_RECEIVED' || boe.queryStatus === 'QUERY_REPLIED') return 'UNDER_ASSESSMENT';
-    if (boe.boeNumber || boe.boeFiledDate) return 'BOE_FILED';
-    return 'BOE_NOT_FILED';
+    if (boe.boeNumber && boe.boeFiledDate) return 'BOE_STATUS'; // Assessment Pending
+    if (boe.boeNumber) return 'BOE_GENERATED';
+    return 'READY_FOR_SUBMISSION';
 }
 
 // PATCH /api/shipments/:id/boe
@@ -75,6 +82,13 @@ async function updateBoeStatus(req, res) {
         if (body.stampDutyAmount !== undefined) data.stampDutyAmount = parseFloat(body.stampDutyAmount);
         if (body.deliveryStatus) data.deliveryStatus = body.deliveryStatus;
         if (body.deliveryDate) data.deliveryDate = new Date(body.deliveryDate);
+        if (body.cfsCharges !== undefined) data.cfsCharges = parseFloat(body.cfsCharges);
+
+        // Handle file URLs for deletion/clearing
+        ['boeFileUrl', 'oocFileUrl', 'stampDutyFileUrl', 'gatepassCustodianUrl', 'cfsInvoiceUrl'].forEach(f => {
+            if (body[f] === null || body[f] === '') data[f] = null;
+            else if (body[f]) data[f] = body[f];
+        });
 
         if (Object.keys(errors).length > 0) {
             return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Validation failed', fields: errors } });
@@ -117,4 +131,47 @@ async function updateBoeStatus(req, res) {
     }
 }
 
-module.exports = { getBoeStatus, updateBoeStatus };
+// POST /api/shipments/:id/boe/upload/:docType
+async function uploadBoeDocument(req, res) {
+    try {
+        const shipmentId = parseInt(req.params.id);
+        const { docType } = req.params;
+
+        if (!req.file) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'File is required' } });
+        }
+
+        const fileUrl = `/uploads/${req.file.filename}`;
+        const fieldMap = {
+            'BOE': 'boeFileUrl',
+            'STAMP_DUTY': 'stampDutyFileUrl',
+            'OOC': 'oocFileUrl',
+            'GATEPASS_CUSTODIAN': 'gatepassCustodianUrl',
+            'CFS_INVOICE': 'cfsInvoiceUrl',
+        };
+
+        const field = fieldMap[docType];
+        if (!field) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid document type' } });
+        }
+
+        const boe = await prisma.boeStatus.update({
+            where: { shipmentId },
+            data: { [field]: fileUrl },
+        });
+
+        await logActivity({
+            shipmentId,
+            userId: req.user.id,
+            action: 'UPLOAD_BOE_DOC',
+            details: `Uploaded ${docType.replace(/_/g, ' ')} document`
+        });
+
+        res.json({ success: true, data: boe });
+    } catch (err) {
+        console.error('Upload BOE doc error:', err);
+        res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Upload failed' } });
+    }
+}
+
+module.exports = { getBoeStatus, updateBoeStatus, uploadBoeDocument };
