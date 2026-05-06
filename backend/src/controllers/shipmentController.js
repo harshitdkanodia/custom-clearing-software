@@ -288,6 +288,65 @@ async function updateIgmStatus(req, res) {
 }
 
 // PATCH /api/shipments/:id/containers/:containerId/status
+async function updateContainer(req, res) {
+    try {
+        const { containerId } = req.params;
+        const {
+            containerNumber, containerType, containerSize, status,
+            portInDate, portInCfsName, portOutDate, cfsInDate, cfsOutDate
+        } = req.body;
+        const errors = {};
+
+        if (containerNumber) {
+            const trimmedNum = containerNumber.trim().toUpperCase();
+            // Global uniqueness across active shipments (excluding this one)
+            const globalDup = await prisma.container.findFirst({
+                where: {
+                    containerNumber: trimmedNum,
+                    id: { not: parseInt(containerId) },
+                    shipment: { status: { not: 'CLOSED' } }
+                },
+                include: { shipment: { select: { onsJobNumber: true } } }
+            });
+            if (globalDup) {
+                errors.containerNumber = `Container ${trimmedNum} is already active in job ${globalDup.shipment.onsJobNumber}`;
+            }
+        }
+
+        if (Object.keys(errors).length > 0) {
+            return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Validation failed', fields: errors } });
+        }
+
+        const data = {};
+        if (containerNumber) data.containerNumber = containerNumber.trim().toUpperCase();
+        if (containerType) data.containerType = containerType;
+        if (containerSize) data.containerSize = containerSize;
+        if (status) data.status = status;
+        
+        // Handle dates - if empty string or null, set to null
+        if (portInDate !== undefined) data.portInDate = portInDate ? new Date(portInDate) : null;
+        if (portInCfsName !== undefined) data.portInCfsName = portInCfsName;
+        if (portOutDate !== undefined) data.portOutDate = portOutDate ? new Date(portOutDate) : null;
+        if (cfsInDate !== undefined) data.cfsInDate = cfsInDate ? new Date(cfsInDate) : null;
+        if (cfsOutDate !== undefined) data.cfsOutDate = cfsOutDate ? new Date(cfsOutDate) : null;
+
+        const container = await prisma.container.update({
+            where: { id: parseInt(containerId) },
+            data,
+        });
+
+        const detail = `Updated container ${container.containerNumber}`;
+        await logActivity({ shipmentId: container.shipmentId, userId: req.user.id, action: 'UPDATE_CONTAINER', details: detail });
+        await checkAndProgressShipment(container.shipmentId);
+
+        res.json({ success: true, data: container });
+    } catch (err) {
+        console.error('Update container error:', err);
+        res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Failed to update container' } });
+    }
+}
+
+// PATCH /api/shipments/:id/containers/:containerId/status
 async function updateContainerStatus(req, res) {
     try {
         const { containerId } = req.params;
@@ -443,7 +502,7 @@ async function deleteTransport(req, res) {
 
 module.exports = {
     createShipment, getShipments, getShipment, updateShipment,
-    updateIgmStatus, updateContainerStatus, getShipmentActivity,
+    updateIgmStatus, updateContainer, updateContainerStatus, getShipmentActivity,
     getTransports, createOrUpdateTransport, deleteTransport,
     deleteShipment
 };
