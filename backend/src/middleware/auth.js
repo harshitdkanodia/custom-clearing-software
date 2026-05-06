@@ -18,6 +18,7 @@ function verifyToken(req, res, next) {
         req.user = decoded;
         next();
     } catch (err) {
+        console.error('JWT Verification Error:', err.message);
         return res.status(401).json({
             success: false,
             error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' }

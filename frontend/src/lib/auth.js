@@ -16,7 +16,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
+        const isLoginRequest = error.config?.url?.includes('/auth/login');
+        const isLoginPage = window.location.pathname === '/login';
+
+        if (error.response?.status === 401 && !isLoginRequest && !isLoginPage) {
             logout();
             window.location.href = '/login';
         }
