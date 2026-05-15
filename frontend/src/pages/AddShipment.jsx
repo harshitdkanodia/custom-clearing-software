@@ -208,6 +208,19 @@ export default function AddShipment() {
                                     <div className="space-y-0.5"><Label className="text-[11px]">MBL No</Label><Input value={form.mblNo} onChange={e => handleChange('mblNo', e.target.value)} className="h-8" /></div>
                                     <div className="space-y-0.5"><Label className="text-[11px]">HBL No</Label><Input value={form.hblNo} onChange={e => handleChange('hblNo', e.target.value)} className="h-8" /></div>
                                 </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                    <div className="space-y-0.5"><Label className="text-[11px] font-semibold text-gray-700 uppercase">Vessel / Voyage</Label><Input value={form.vesselNameVoyage} onChange={e => handleChange('vesselNameVoyage', e.target.value)} placeholder="Vessel name & voyage" className="h-8 text-sm" /></div>
+                                    <div className="space-y-0.5"><Label className="text-[11px] font-semibold text-gray-700 uppercase">CFS Name</Label><Input value={form.cfsName} onChange={e => handleChange('cfsName', e.target.value)} placeholder="CFS name" className="h-8 text-sm" /></div>
+                                    <div className="space-y-0.5"><Label className="text-[11px] font-semibold text-gray-700 uppercase">Liner</Label><Input value={form.linerName} onChange={e => handleChange('linerName', e.target.value)} placeholder="Liner / Shipping line" className="h-8 text-sm" /></div>
+                                    <div className="space-y-0.5"><Label className="text-[11px] font-semibold text-gray-700 uppercase">Forwarder</Label><Input value={form.forwarderName} onChange={e => handleChange('forwarderName', e.target.value)} placeholder="Forwarder name" className="h-8 text-sm" /></div>
+                                    <div className="space-y-0.5"><Label className="text-[11px] font-semibold text-gray-700 uppercase">Port of Loading</Label><Input value={form.portOfLoading} onChange={e => handleChange('portOfLoading', e.target.value)} placeholder="Port of loading" className="h-8 text-sm" /></div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-0.5"><Label className="text-[11px] font-semibold text-gray-700 uppercase">Free Days (Shipping Line)</Label><Input type="number" value={form.freeDaysShippingLine} onChange={e => handleChange('freeDaysShippingLine', e.target.value)} placeholder="0" className="h-8 text-sm" /></div>
+                                    <div className="space-y-0.5"><Label className="text-[11px] font-semibold text-gray-700 uppercase">Free Days (CFS)</Label><Input type="number" value={form.freeDaysCfs} onChange={e => handleChange('freeDaysCfs', e.target.value)} placeholder="0" className="h-8 text-sm" /></div>
+                                </div>
                             </CardContent>
                         </Card>
 

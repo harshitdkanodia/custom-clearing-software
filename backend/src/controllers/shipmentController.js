@@ -216,7 +216,7 @@ async function updateShipment(req, res) {
         const {
             shipmentType, shipmentSubType, noOfCtn, description, grossWeight, cfsName,
             mblNo, hblNo, vesselNameVoyage, linerName, forwarderName,
-            portOfLoading, eta, freeDaysShippingLine, freeDaysCfs
+            portOfLoading, eta, freeDaysShippingLine, freeDaysCfs, inwardDate
         } = req.body;
 
         const shipment = await prisma.shipment.update({
@@ -229,6 +229,7 @@ async function updateShipment(req, res) {
                 portOfLoading, eta: eta ? new Date(eta) : null,
                 freeDaysShippingLine: freeDaysShippingLine ? parseInt(freeDaysShippingLine) : null,
                 freeDaysCfs: freeDaysCfs ? parseInt(freeDaysCfs) : null,
+                inwardDate: inwardDate ? new Date(inwardDate) : undefined,
             },
             include: { customer: true, containers: true },
         });

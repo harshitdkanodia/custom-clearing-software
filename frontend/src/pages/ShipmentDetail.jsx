@@ -16,7 +16,7 @@ import ShipmentStatusBadge from '@/components/ShipmentStatusBadge';
 import {
     ArrowLeft, Ship, Container, FileText, Loader2, Upload, CheckCircle,
     Truck, Receipt, ClipboardList, AlertTriangle, History, Clock, Plus, Trash2, FileCheck, Share2,
-    IndianRupee, Mail, CheckCircle2, Paperclip
+    IndianRupee, Mail, CheckCircle2, Paperclip, Pencil
 } from 'lucide-react';
 import {
     AlertDialog,
@@ -69,6 +69,9 @@ export default function ShipmentDetail() {
     const [confirmDialog, setConfirmDialog] = useState(null); // { title, description, onConfirm }
     const [otherDocDialog, setOtherDocDialog] = useState(null); // 'FILING' | 'DO'
     const [customDocName, setCustomDocName] = useState('');
+    const [editShipmentDialog, setEditShipmentDialog] = useState(false);
+    const [editShipmentForm, setEditShipmentForm] = useState({});
+    const [editShipmentSaving, setEditShipmentSaving] = useState(false);
 
     const canEdit = hasRole('ADMIN', 'OPERATION_STAFF');
 
@@ -157,10 +160,47 @@ export default function ShipmentDetail() {
         fetchTransports();
     }, [id]);
 
+    function openEditShipmentDialog() {
+        setEditShipmentForm({
+            shipmentType: shipment.shipmentType || 'IMPORT',
+            shipmentSubType: shipment.shipmentSubType || 'HOME_CONSUMPTION',
+            noOfCtn: shipment.noOfCtn || '',
+            description: shipment.description || '',
+            grossWeight: shipment.grossWeight || '',
+            cfsName: shipment.cfsName || '',
+            mblNo: shipment.mblNo || '',
+            hblNo: shipment.hblNo || '',
+            vesselNameVoyage: shipment.vesselNameVoyage || '',
+            linerName: shipment.linerName || '',
+            forwarderName: shipment.forwarderName || '',
+            portOfLoading: shipment.portOfLoading || '',
+            eta: shipment.eta ? shipment.eta.split('T')[0] : '',
+            freeDaysShippingLine: shipment.freeDaysShippingLine || '',
+            freeDaysCfs: shipment.freeDaysCfs || '',
+            inwardDate: shipment.inwardDate ? shipment.inwardDate.split('T')[0] : '',
+        });
+        setEditShipmentDialog(true);
+    }
+
+    async function handleEditShipmentSubmit(e) {
+        e.preventDefault();
+        setEditShipmentSaving(true);
+        try {
+            await api.put(`/shipments/${id}`, editShipmentForm);
+            toast.success('Shipment details updated');
+            setEditShipmentDialog(false);
+            fetchShipment();
+        } catch (err) {
+            toast.error(err.response?.data?.error?.message || 'Update failed');
+        } finally {
+            setEditShipmentSaving(false);
+        }
+    }
+
     async function handleIgmUpdate() {
         setUpdating(true);
         try {
-            await api.patch(`/shipments/${id}/igm`, updateForm);
+            await api.patch(`/shipments/${id}/igm-status`, updateForm);
             toast.success('IGM details updated');
             fetchShipment();
             setUpdateDialog(null);
@@ -546,15 +586,21 @@ export default function ShipmentDetail() {
                     <Card>
                         <CardHeader className="pb-3 border-b flex items-center justify-between">
                             <CardTitle className="text-base flex items-center gap-2"><Ship className="h-4 w-4" /> Shipment Core Details</CardTitle>
-                            <Badge variant="blue" className="px-3 py-1 font-black text-sm">{shipment.shipmentType} / {shipment.shipmentSubType?.replace(/_/g, ' ')}</Badge>
+                            <div className="flex items-center gap-2">
+                                <Badge variant="blue" className="px-3 py-1 font-black text-sm">{shipment.shipmentType} / {shipment.shipmentSubType?.replace(/_/g, ' ')}</Badge>
+                                {canEdit && <Button variant="outline" size="sm" onClick={openEditShipmentDialog} className="gap-1.5 text-xs font-bold"><Pencil className="h-3.5 w-3.5" /> Edit</Button>}
+                            </div>
                         </CardHeader>
                         <CardContent className="pt-4">
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-y-2 gap-x-4 text-sm">
                                 {(() => {
                                     const inward = shipment.inwardDate ? new Date(shipment.inwardDate) : null;
+                                    const etaDate = shipment.eta ? new Date(shipment.eta) : null;
                                     const firstCfsIn = shipment.containers?.[0]?.cfsInDate ? new Date(shipment.containers[0].cfsInDate) : null;
                                     
-                                    const shippingExpiry = inward && shipment.freeDaysShippingLine ? new Date(inward.getTime() + (shipment.freeDaysShippingLine * 24 * 60 * 60 * 1000)) : null;
+                                    const shippingBaseDate = inward || etaDate;
+                                    const shippingExpiry = shippingBaseDate && shipment.freeDaysShippingLine ? new Date(shippingBaseDate.getTime() + (shipment.freeDaysShippingLine * 24 * 60 * 60 * 1000)) : null;
+                                    const shippingExpiryIsEstimate = !inward && !!etaDate;
                                     const cfsExpiry = firstCfsIn && shipment.freeDaysCfs ? new Date(firstCfsIn.getTime() + (shipment.freeDaysCfs * 24 * 60 * 60 * 1000)) : null;
 
                                     return [
@@ -568,10 +614,10 @@ export default function ShipmentDetail() {
                                         ['Forwarder', shipment.forwarderName || '—'], ['Port of Loading', shipment.portOfLoading || '—'],
                                         ['ETA', shipment.eta ? new Date(shipment.eta).toLocaleDateString() : '—'],
                                         ['Free Days (Shipping)', `${shipment.freeDaysShippingLine || 0} days`],
-                                        ['Shipping Line Expiry', shippingExpiry ? <span className={shippingExpiry < new Date() ? 'text-red-600 font-bold' : 'text-green-600'}>{shippingExpiry.toLocaleDateString()}</span> : '—'],
+                                        ['Shipping Line Expiry', shippingExpiry ? <span className={shippingExpiry < new Date() ? 'text-red-600 font-bold' : 'text-green-600'}>{shippingExpiry.toLocaleDateString()}{shippingExpiryIsEstimate ? ' (est.)' : ''}</span> : '—'],
                                         ['Free Days (CFS)', `${shipment.freeDaysCfs || 0} days`],
                                         ['CFS Expiry', cfsExpiry ? <span className={cfsExpiry < new Date() ? 'text-red-600 font-bold' : 'text-green-600'}>{cfsExpiry.toLocaleDateString()}</span> : '—'],
-                                        ['IGM Details', shipment.igmNumber ? `IGM: ${shipment.igmNumber} (Item ${shipment.itemNumber})` : 'Not Filed'],
+                                        ['IGM Details', shipment.igmNumber ? `IGM: ${shipment.igmNumber} (Item ${shipment.igmItemNo || '—'})` : 'Not Filed'],
                                         ['Inward Date', shipment.inwardDate ? new Date(shipment.inwardDate).toLocaleDateString() : '—'],
                                     ].map(([label, value]) => (
                                         <div key={label}>
@@ -582,6 +628,13 @@ export default function ShipmentDetail() {
                                 })()}
                             </div>
                         </CardContent>
+                        {canEdit && (
+                            <div className="px-4 py-3 border-t bg-gray-50/50 flex justify-end">
+                                <Button variant="outline" size="sm" onClick={() => { setUpdateDialog({ type: 'igm' }); setUpdateForm({ igmStatus: shipment.igmStatus || 'IGM_NOT_FILED', igmNumber: shipment.igmNumber || '', igmDate: shipment.igmDate ? shipment.igmDate.split('T')[0] : '', igmItemNo: shipment.igmItemNo || '', inwardDate: shipment.inwardDate ? shipment.inwardDate.split('T')[0] : '' }); }} className="gap-1.5 text-xs font-bold">
+                                    <Pencil className="h-3.5 w-3.5" /> Update IGM Details
+                                </Button>
+                            </div>
+                        )}
                     </Card>
                 </TabsContent>
 
@@ -1264,6 +1317,25 @@ export default function ShipmentDetail() {
                                 <div className="space-y-2"><Label>CFS OUT Date</Label><Input type="date" value={updateForm.cfsOutDate?.split?.('T')?.[0] || ''} onChange={e => setUpdateForm({ ...updateForm, cfsOutDate: e.target.value })} /></div>
                             </>
                         )}
+                        {updateDialog?.type === 'igm' && (
+                            <>
+                                <div className="space-y-2">
+                                    <Label>IGM Status</Label>
+                                    <Select value={updateForm.igmStatus || 'IGM_NOT_FILED'} onValueChange={v => setUpdateForm({ ...updateForm, igmStatus: v })}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="IGM_NOT_FILED">Not Filed</SelectItem>
+                                            <SelectItem value="AWAITING_VESSEL">Awaiting Vessel</SelectItem>
+                                            <SelectItem value="VESSEL_ARRIVED">Vessel Arrived</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2"><Label>IGM Number</Label><Input value={updateForm.igmNumber || ''} onChange={e => setUpdateForm({ ...updateForm, igmNumber: e.target.value })} placeholder="IGM Number" /></div>
+                                <div className="space-y-2"><Label>IGM Date</Label><Input type="date" value={updateForm.igmDate || ''} onChange={e => setUpdateForm({ ...updateForm, igmDate: e.target.value })} /></div>
+                                <div className="space-y-2"><Label>IGM Item No</Label><Input value={updateForm.igmItemNo || ''} onChange={e => setUpdateForm({ ...updateForm, igmItemNo: e.target.value })} placeholder="Item Number" /></div>
+                                <div className="space-y-2"><Label>Inward Date</Label><Input type="date" value={updateForm.inwardDate || ''} onChange={e => setUpdateForm({ ...updateForm, inwardDate: e.target.value })} /></div>
+                            </>
+                        )}
                         {updateDialog?.type === 'boe' && (
                             <>
                                 {updateDialog.stage === 'BASIC' && (
@@ -1329,6 +1401,7 @@ export default function ShipmentDetail() {
                         <Button onClick={() => {
                             if (updateDialog.type === 'container') handleContainerUpdate();
                             else if (updateDialog.type === 'boe') handleBoeUpdate(updateForm);
+                            else if (updateDialog.type === 'igm') handleIgmUpdate();
                         }} disabled={updating}>{updating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}</Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1429,6 +1502,65 @@ export default function ShipmentDetail() {
                             {addingOther ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add Document'}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Edit Shipment Dialog */}
+            <Dialog open={editShipmentDialog} onOpenChange={setEditShipmentDialog}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader><DialogTitle className="flex items-center gap-2"><Pencil className="h-4 w-4" /> Edit Shipment Details</DialogTitle></DialogHeader>
+                    <form onSubmit={handleEditShipmentSubmit} className="space-y-4 py-2">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                                <Label className="text-[11px] font-semibold uppercase">Shipment Type</Label>
+                                <Select value={editShipmentForm.shipmentType} onValueChange={v => setEditShipmentForm(p => ({ ...p, shipmentType: v }))}>
+                                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                    <SelectContent><SelectItem value="IMPORT">Import</SelectItem><SelectItem value="EXPORT">Export</SelectItem></SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1">
+                                <Label className="text-[11px] font-semibold uppercase">Sub-Type</Label>
+                                <Select value={editShipmentForm.shipmentSubType} onValueChange={v => setEditShipmentForm(p => ({ ...p, shipmentSubType: v }))}>
+                                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                                    <SelectContent><SelectItem value="HOME_CONSUMPTION">Home Consumption</SelectItem><SelectItem value="IN_BOND">IN Bond</SelectItem></SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Cartons</Label><Input type="number" value={editShipmentForm.noOfCtn} onChange={e => setEditShipmentForm(p => ({ ...p, noOfCtn: e.target.value }))} className="h-9" /></div>
+                            <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Gross Weight (kg)</Label><Input type="number" step="0.01" value={editShipmentForm.grossWeight} onChange={e => setEditShipmentForm(p => ({ ...p, grossWeight: e.target.value }))} className="h-9" /></div>
+                            <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">MBL No</Label><Input value={editShipmentForm.mblNo} onChange={e => setEditShipmentForm(p => ({ ...p, mblNo: e.target.value }))} className="h-9" /></div>
+                            <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">HBL No</Label><Input value={editShipmentForm.hblNo} onChange={e => setEditShipmentForm(p => ({ ...p, hblNo: e.target.value }))} className="h-9" /></div>
+                        </div>
+
+                        <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Description</Label><Input value={editShipmentForm.description} onChange={e => setEditShipmentForm(p => ({ ...p, description: e.target.value }))} className="h-9" /></div>
+
+                        <div className="border-t pt-4">
+                            <p className="text-[11px] font-black text-gray-400 uppercase tracking-wider mb-3">Shipping & Logistics</p>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Vessel / Voyage</Label><Input value={editShipmentForm.vesselNameVoyage} onChange={e => setEditShipmentForm(p => ({ ...p, vesselNameVoyage: e.target.value }))} placeholder="Vessel name & voyage" className="h-9" /></div>
+                                <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">CFS Name</Label><Input value={editShipmentForm.cfsName} onChange={e => setEditShipmentForm(p => ({ ...p, cfsName: e.target.value }))} placeholder="CFS name" className="h-9" /></div>
+                                <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Liner</Label><Input value={editShipmentForm.linerName} onChange={e => setEditShipmentForm(p => ({ ...p, linerName: e.target.value }))} placeholder="Shipping line" className="h-9" /></div>
+                                <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Forwarder</Label><Input value={editShipmentForm.forwarderName} onChange={e => setEditShipmentForm(p => ({ ...p, forwarderName: e.target.value }))} placeholder="Forwarder name" className="h-9" /></div>
+                                <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Port of Loading</Label><Input value={editShipmentForm.portOfLoading} onChange={e => setEditShipmentForm(p => ({ ...p, portOfLoading: e.target.value }))} placeholder="Port of loading" className="h-9" /></div>
+                                <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">ETA</Label><Input type="date" value={editShipmentForm.eta} onChange={e => setEditShipmentForm(p => ({ ...p, eta: e.target.value }))} className="h-9" /></div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Free Days (Shipping Line)</Label><Input type="number" value={editShipmentForm.freeDaysShippingLine} onChange={e => setEditShipmentForm(p => ({ ...p, freeDaysShippingLine: e.target.value }))} placeholder="0" className="h-9" /></div>
+                            <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Free Days (CFS)</Label><Input type="number" value={editShipmentForm.freeDaysCfs} onChange={e => setEditShipmentForm(p => ({ ...p, freeDaysCfs: e.target.value }))} placeholder="0" className="h-9" /></div>
+                            <div className="space-y-1"><Label className="text-[11px] font-semibold uppercase">Inward Date</Label><Input type="date" value={editShipmentForm.inwardDate} onChange={e => setEditShipmentForm(p => ({ ...p, inwardDate: e.target.value }))} className="h-9" /></div>
+                        </div>
+
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setEditShipmentDialog(false)}>Cancel</Button>
+                            <Button type="submit" disabled={editShipmentSaving} className="gap-2 bg-blue-600 hover:bg-blue-700">
+                                {editShipmentSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />} Save Changes
+                            </Button>
+                        </DialogFooter>
+                    </form>
                 </DialogContent>
             </Dialog>
         </div>
