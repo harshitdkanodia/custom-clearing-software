@@ -32,6 +32,7 @@ app.use('/api/reports', require('./src/routes/reports'));
 app.use('/api/closed-jobs', require('./src/routes/closedJobs'));
 app.use('/api/users', require('./src/routes/users'));
 app.use('/api/portal', require('./src/routes/customerPortal'));
+app.use('/api/system', require('./src/routes/system'));
 
 // Health check
 app.get('/api/health', (req, res) => {
