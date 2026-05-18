@@ -137,10 +137,18 @@ async function createShipment(req, res) {
 // GET /api/shipments
 async function getShipments(req, res) {
     try {
-        const { status, search, page = 1, limit = 20 } = req.query;
+        const { status, excludeStatus, search, page = 1, limit = 20 } = req.query;
         const where = {};
 
-        if (status && status !== 'ALL') where.status = status;
+        if (status && status !== 'ALL') {
+            if (status === 'ACTIVE') {
+                where.status = { not: 'CLOSED' };
+            } else {
+                where.status = status;
+            }
+        } else if (excludeStatus) {
+            where.status = { not: excludeStatus };
+        }
 
         if (search) {
             where.OR = [
